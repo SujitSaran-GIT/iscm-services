@@ -21,7 +21,7 @@ public class PasswordService {
     public PasswordService(PasswordEncoder passwordEncoder) {
         this.passwordEncoder = passwordEncoder;
         this.passwordValidator = new PasswordValidator(Arrays.asList(
-                new LengthRule(8, 128),
+                new LengthRule(8, Integer.MAX_VALUE),
                 new CharacterRule(EnglishCharacterData.UpperCase, 1),
                 new CharacterRule(EnglishCharacterData.LowerCase, 1),
                 new CharacterRule(EnglishCharacterData.Digit, 1),

@@ -39,8 +39,8 @@ public class RateLimitingInterceptor implements HandlerInterceptor {
         }
     }
 
-    private boolean handleRateLimit(HttpServletResponse response, String clientKey, String path, 
-                                   RateLimitProperties.Auth config, String endpointType) throws Exception {
+    private boolean handleRateLimit(HttpServletResponse response, String clientKey, String path,
+                                   RateLimitProperties.RateLimitConfig config, String endpointType) throws Exception {
         
         // Check burst limit first
         if (rateLimitingService.isBurstLimited(clientKey, config.getBurstLimit(), config.getBurstRecovery())) {

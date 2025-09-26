@@ -1,6 +1,10 @@
 package com.iscm.iam.service;
 
+import com.iscm.iam.model.Permission;
+import com.iscm.iam.model.Role;
 import com.iscm.iam.model.User;
+import com.iscm.iam.model.UserRole;
+import com.iscm.iam.repository.RoleRepository;
 import com.iscm.iam.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +16,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.UUID;
@@ -23,6 +28,7 @@ import java.util.stream.Collectors;
 public class UserService implements UserDetailsService {
 
     private final UserRepository userRepository;
+    private final RoleRepository roleRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -42,13 +48,13 @@ public class UserService implements UserDetailsService {
     }
 
     private UserDetails buildUserDetails(User user) {
-        Collection<GrantedAuthority> authorities = user.getRoles().stream()
-                .map(role -> new SimpleGrantedAuthority("ROLE_" + role.getName()))
+        Collection<GrantedAuthority> authorities = user.getUserRoles().stream()
+                .map(userRole -> new SimpleGrantedAuthority("ROLE_" + userRole.getRole().getName()))
                 .collect(Collectors.toList());
 
         // Add permissions as authorities
-        user.getRoles().forEach(role -> 
-            role.getPermissions().forEach(permission -> 
+        user.getUserRoles().forEach(userRole ->
+            userRole.getRole().getPermissions().forEach(permission ->
                 authorities.add(new SimpleGrantedAuthority(permission.getCode()))
             )
         );
@@ -62,6 +68,24 @@ public class UserService implements UserDetailsService {
                 user.isAccountNonLocked(),
                 authorities
         );
+    }
+
+    @Transactional
+    public void assignRoleToUser(User user, Role role, UUID assignedBy) {
+        UserRole userRole = new UserRole();
+        userRole.setUser(user);
+        userRole.setRole(role);
+        userRole.setAssignedAt(LocalDateTime.now());
+        userRole.setAssignedBy(assignedBy);
+        user.getUserRoles().add(userRole);
+        userRepository.save(user);
+    }
+
+    @Transactional
+    public void assignDefaultRoleToUser(User user) {
+        Role defaultRole = roleRepository.findByName("USER")
+                .orElseThrow(() -> new RuntimeException("Default USER role not found"));
+        assignRoleToUser(user, defaultRole, null);
     }
 
     @Transactional(readOnly = true)

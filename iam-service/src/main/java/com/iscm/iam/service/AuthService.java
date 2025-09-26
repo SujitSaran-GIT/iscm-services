@@ -6,6 +6,7 @@ import com.iscm.iam.dto.RegisterRequest;
 import com.iscm.iam.model.Organization;
 import com.iscm.iam.model.Role;
 import com.iscm.iam.model.User;
+import com.iscm.iam.model.UserRole;
 import com.iscm.iam.model.UserSession;
 import com.iscm.iam.repository.OrganizationRepository;
 import com.iscm.iam.repository.RoleRepository;
@@ -35,6 +36,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final OrganizationRepository organizationRepository;
+    private final UserService userService;
     private final UserSessionService sessionService;
     private final PasswordService passwordService;
     private final AuthenticationManager authenticationManager;
@@ -67,8 +69,8 @@ public class AuthService {
             userRepository.save(user);
 
             // Generate tokens
-            List<String> roles = user.getRoles().stream()
-                    .map(Role::getName)
+            List<String> roles = user.getUserRoles().stream()
+                    .map(userRole -> userRole.getRole().getName())
                     .toList();
 
             String accessToken = jwtUtil.generateAccessToken(
@@ -125,14 +127,16 @@ public class AuthService {
         user.setLastName(request.getLastName());
         user.setPhone(request.getPhone());
         user.setOrganization(organization);
-        user.setRoles(List.of(defaultRole));
         user.setTenantId(organization != null ? organization.getId() : null);
 
         User savedUser = userRepository.save(user);
 
+        // Assign default role using UserService
+        userService.assignRoleToUser(savedUser, defaultRole, null);
+
         // Generate tokens for auto-login after registration
-        List<String> roles = savedUser.getRoles().stream()
-                .map(Role::getName)
+        List<String> roles = savedUser.getUserRoles().stream()
+                .map(userRole -> userRole.getRole().getName())
                 .toList();
 
         String accessToken = jwtUtil.generateAccessToken(
@@ -155,8 +159,8 @@ public class AuthService {
         UserSession session = sessionService.validateRefreshToken(refreshToken);
         User user = session.getUser();
 
-        List<String> roles = user.getRoles().stream()
-                .map(Role::getName)
+        List<String> roles = user.getUserRoles().stream()
+                .map(userRole -> userRole.getRole().getName())
                 .toList();
 
         String newAccessToken = jwtUtil.generateAccessToken(

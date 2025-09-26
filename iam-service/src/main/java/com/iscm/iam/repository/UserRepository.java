@@ -16,10 +16,10 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     
     Boolean existsByEmail(String email);
     
-    @Query("SELECT u FROM User u LEFT JOIN FETCH u.roles WHERE u.email = :email")
+    @Query("SELECT u FROM User u LEFT JOIN FETCH u.userRoles ur LEFT JOIN FETCH ur.role WHERE u.email = :email")
     Optional<User> findByEmailWithRoles(@Param("email") String email);
-    
-    @Query("SELECT u FROM User u LEFT JOIN FETCH u.roles WHERE u.id = :id")
+
+    @Query("SELECT u FROM User u LEFT JOIN FETCH u.userRoles ur LEFT JOIN FETCH ur.role WHERE u.id = :id")
     Optional<User> findByIdWithRoles(@Param("id") UUID id);
     
     @Query("SELECT COUNT(u) > 0 FROM User u WHERE u.email = :email AND u.id != :id")

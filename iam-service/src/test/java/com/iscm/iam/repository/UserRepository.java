@@ -4,10 +4,12 @@ import com.iscm.iam.BaseIntegrationTest;
 import com.iscm.iam.model.Organization;
 import com.iscm.iam.model.Role;
 import com.iscm.iam.model.User;
+import com.iscm.iam.model.UserRole;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -53,19 +55,25 @@ class UserRepositoryTest extends BaseIntegrationTest {
         user.setFirstName("John");
         user.setLastName("Doe");
         user.setOrganization(testOrg);
-        user.setRoles(List.of(testRole));
 
         // When
         User savedUser = userRepository.save(user);
-        Optional<User> foundUser = userRepository.findByEmail("test@example.com");
+
+        // Create UserRole relationship
+        UserRole userRole = new UserRole();
+        userRole.setUser(savedUser);
+        userRole.setRole(testRole);
+        userRole.setAssignedAt(LocalDateTime.now());
+
+        Optional<User> foundUser = userRepository.findByEmailWithRoles("test@example.com");
 
         // Then
         assertTrue(foundUser.isPresent());
         assertEquals("test@example.com", foundUser.get().getEmail());
         assertEquals("John", foundUser.get().getFirstName());
         assertEquals(testOrg.getId(), foundUser.get().getOrganization().getId());
-        assertFalse(foundUser.get().getRoles().isEmpty());
-        assertEquals("TEST_ROLE", foundUser.get().getRoles().get(0).getName());
+        assertFalse(foundUser.get().getUserRoles().isEmpty());
+        assertEquals("TEST_ROLE", foundUser.get().getUserRoles().get(0).getRole().getName());
     }
 
     @Test
@@ -76,16 +84,21 @@ class UserRepositoryTest extends BaseIntegrationTest {
         user.setPasswordHash("hashedpassword");
         user.setFirstName("With");
         user.setLastName("Roles");
-        user.setRoles(List.of(testRole));
-        userRepository.save(user);
+        User savedUser = userRepository.save(user);
+
+        // Create UserRole relationship
+        UserRole userRole = new UserRole();
+        userRole.setUser(savedUser);
+        userRole.setRole(testRole);
+        userRole.setAssignedAt(LocalDateTime.now());
 
         // When
         Optional<User> foundUser = userRepository.findByEmailWithRoles("withroles@example.com");
 
         // Then
         assertTrue(foundUser.isPresent());
-        assertFalse(foundUser.get().getRoles().isEmpty());
-        assertEquals("TEST_ROLE", foundUser.get().getRoles().get(0).getName());
+        assertFalse(foundUser.get().getUserRoles().isEmpty());
+        assertEquals("TEST_ROLE", foundUser.get().getUserRoles().get(0).getRole().getName());
     }
 
     @Test

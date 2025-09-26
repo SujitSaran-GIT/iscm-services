@@ -16,13 +16,16 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.header.writers.XXssProtectionHeaderWriter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.client.RestTemplate;
 
 import com.iscm.iam.security.CustomAccessDeniedHandler;
 import com.iscm.iam.security.JwtAuthenticationEntryPoint;
 import com.iscm.iam.security.JwtAuthenticationFilter;
+import com.iscm.iam.security.UnlimitedLengthPasswordEncoder;
 import com.iscm.iam.service.UserService;
 
 import java.util.Arrays;
@@ -44,7 +47,7 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder(12); // Increased strength for better security
+        return new UnlimitedLengthPasswordEncoder(); // Custom encoder that handles passwords of any length
     }
 
     @Bean
@@ -124,7 +127,7 @@ public class SecurityConfig {
                     "connect-src 'self'"
                 ))
                 .frameOptions(frame -> frame.deny())
-                .xssProtection(xss -> xss.block(true))
+                .xssProtection(xss -> xss.headerValue(XXssProtectionHeaderWriter.HeaderValue.ENABLED_MODE_BLOCK))
                 .contentTypeOptions(contentType -> {})
             )
             
@@ -172,5 +175,10 @@ public class SecurityConfig {
     public SecurityFilterChain requireSslFilterChain(HttpSecurity http) throws Exception {
         http.requiresChannel(channel -> channel.anyRequest().requiresSecure());
         return http.build();
+    }
+
+    @Bean
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
     }
 }

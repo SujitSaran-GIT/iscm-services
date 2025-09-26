@@ -31,6 +31,10 @@ public class AuthResponse {
     
     @Schema(description = "Authenticated user information")
     private UserDto user;
+
+    @Schema(description = "Indicates if this is a new user registration (OAuth only)", example = "false")
+    @Builder.Default
+    private Boolean isNewUser = false;
     
     @Data
     @Builder
@@ -66,7 +70,7 @@ public class AuthResponse {
                     .firstName(user.getFirstName())
                     .lastName(user.getLastName())
                     .fullName(user.getFullName())
-                    .roles(user.getRoles().stream().map(role -> role.getName()).toList())
+                    .roles(user.getUserRoles().stream().map(userRole -> userRole.getRole().getName()).toList())
                     .tenantId(user.getTenantId())
                     .build();
         }

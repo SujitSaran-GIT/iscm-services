@@ -19,7 +19,7 @@ public class RegisterRequest {
     
     @NotBlank(message = "Password is required")
     @Size(min = 8, message = "Password must be at least 8 characters")
-    @Schema(description = "User's password (min 8 characters with uppercase, lowercase, digit, and special character)", 
+    @Schema(description = "User's password (min 8 characters with uppercase, lowercase, digit, and special character)",
             example = "SecurePass123!", requiredMode = Schema.RequiredMode.REQUIRED, minLength = 8)
     private String password;
     

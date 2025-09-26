@@ -30,6 +30,14 @@ public class JwtUtil {
     @Value("${app.jwt.expiration.refresh:604800}") // 7 days
     private Long refreshTokenExpiration;
 
+    public Long getAccessTokenExpiration() {
+        return accessTokenExpiration;
+    }
+
+    public Long getRefreshTokenExpiration() {
+        return refreshTokenExpiration;
+    }
+
     private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(jwtSecret.getBytes());
     }

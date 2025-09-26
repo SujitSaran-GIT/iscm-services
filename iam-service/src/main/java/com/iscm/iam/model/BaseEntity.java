@@ -38,5 +38,6 @@ public class BaseEntity {
     @Version
     private Integer version;
 	
-    private UUID tenantId;
+    @Column(name = "tenant_id")
+private UUID tenantId;
 }

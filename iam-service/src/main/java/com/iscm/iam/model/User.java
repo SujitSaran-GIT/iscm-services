@@ -5,13 +5,13 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.JoinTable;
-import jakarta.persistence.ManyToMany;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -50,10 +50,10 @@ public class User extends BaseEntity{
     private String phone;
 
     @Column(name = "is_active")
-    private Boolean isActive;
+    private Boolean isActive = true;
 
     @Column(name = "auth_provider")
-    private String authProvider = "local";
+    private String authProvider = "LOCAL";
 
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
@@ -64,13 +64,23 @@ public class User extends BaseEntity{
     @Column(name = "account_locked_until")
     private LocalDateTime accountLockedUntil;
 
-    @ManyToMany(fetch = FetchType.LAZY)
-    @JoinTable(
-        name = "user_roles",
-        joinColumns = @JoinColumn(name = "user_id"),
-        inverseJoinColumns = @JoinColumn(name = "role_id")
-    )
-    private List<Role> roles = new ArrayList<>();
+    @Column(name = "mfa_enabled")
+    private Boolean mfaEnabled = false;
+
+    @Column(name = "mfa_secret")
+    private String mfaSecret;
+
+    @Column(name = "mfa_type")
+    private String mfaType; // TOTP, SMS, EMAIL
+
+    @Column(name = "mfa_phone")
+    private String mfaPhone;
+
+    @Column(name = "mfa_backup_codes")
+    private String mfaBackupCodes;
+
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private List<UserRole> userRoles = new ArrayList<>();
 
     public String getFullName() {
         return firstName+" "+lastName;
