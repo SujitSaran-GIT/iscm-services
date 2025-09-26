@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: iscm-postgres-dev
+    environment:
+      POSTGRES_DB: iscm_iam
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ./src/main/resources/db/changelog:/docker-entrypoint-initdb.d
+    networks:
+      - iscm-network-dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: iscm-redis-dev
+    ports:
+      - "6379:6379"
+    networks:
+      - iscm-network-dev
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: iscm-mailhog-dev
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - iscm-network-dev
+
+  iam-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: iscm-iam-service-dev
+    environment:
+      SPRING_PROFILES_ACTIVE: docker,dev
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/iscm_iam
+      SPRING_REDIS_HOST: redis
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      APP_JWT_SECRET: "your-super-secure-jwt-secret-key-for-docker-123!"
+      LOGGING_LEVEL_COM_ISCM: DEBUG
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - iscm-network-dev
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.iam-service.rule=Host(`iam.localhost`)"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: iscm-prometheus-dev
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - iscm-network-dev
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: iscm-grafana-dev
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - iscm-network-dev
+
+volumes:
+  postgres_data_dev:
+
+networks:
+  iscm-network-dev:
+    driver: bridge

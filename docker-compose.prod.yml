@@ -1,0 +1,121 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: iscm-postgres-prod
+    environment:
+      POSTGRES_DB: iscm_iam
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+      - ./src/main/resources/db/changelog:/docker-entrypoint-initdb.d
+    networks:
+      - iscm-network-prod
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: iscm-redis-prod
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data_prod:/data
+    networks:
+      - iscm-network-prod
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  iam-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: iscm-iam-service-prod
+    environment:
+      SPRING_PROFILES_ACTIVE: docker,prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/iscm_iam
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      APP_JWT_SECRET: ${JWT_SECRET}
+      LOGGING_LEVEL_COM_ISCM: INFO
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,metrics,prometheus
+      MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: always
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - iscm-network-prod
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.iam-service.rule=Host(`${DOMAIN:-iam.iscm.com}`)"
+      - "traefik.http.services.iam-service.loadbalancer.healthcheck.path=/iam/actuator/health"
+      - "traefik.http.services.iam-service.loadbalancer.healthcheck.interval=10s"
+
+  # Reverse proxy for production
+  traefik:
+    image: traefik:v2.9
+    container_name: iscm-traefik-prod
+    command:
+      - --api.dashboard=true
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+    ports:
+      - "80:80"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - iscm-network-prod
+
+volumes:
+  postgres_data_prod:
+  redis_data_prod:
+
+networks:
+  iscm-network-prod:
+    driver: bridge

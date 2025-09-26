@@ -1,0 +1,245 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-organizations-table
+      author: iscm-team
+      changes:
+        - createTable:
+            tableName: organizations
+            columns:
+              - column: {name: id, type: UUID, constraints: {primaryKey: true, nullable: false}}
+              - column: {name: name, type: VARCHAR(255), constraints: {nullable: false}}
+              - column: {name: domain, type: VARCHAR(255), constraints: {nullable: true}}
+              - column: {name: parent_org_id, type: UUID, constraints: {nullable: true}}
+              - column: {name: status, type: VARCHAR(50), constraints: {nullable: false}, defaultValue: "ACTIVE"}
+              - column: {name: created_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: updated_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: version, type: INT, constraints: {nullable: false}, defaultValue: "0"}
+              - column: {name: tenant_id, type: UUID, constraints: {nullable: true}}
+        - addForeignKeyConstraint:
+            baseTableName: organizations
+            baseColumnNames: parent_org_id
+            constraintName: fk_organizations_parent
+            referencedTableName: organizations
+            referencedColumnNames: id
+
+  - changeSet:
+      id: 002-create-permissions-table
+      author: iscm-team
+      changes:
+        - createTable:
+            tableName: permissions
+            columns:
+              - column: {name: id, type: UUID, constraints: {primaryKey: true, nullable: false}}
+              - column: {name: code, type: VARCHAR(100), constraints: {nullable: false, unique: true}}
+              - column: {name: description, type: TEXT, constraints: {nullable: true}}
+              - column: {name: created_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: updated_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: version, type: INT, constraints: {nullable: false}, defaultValue: "0"}
+              - column: {name: tenant_id, type: UUID, constraints: {nullable: true}}
+
+  - changeSet:
+      id: 003-create-roles-table
+      author: iscm-team
+      changes:
+        - createTable:
+            tableName: roles
+            columns:
+              - column: {name: id, type: UUID, constraints: {primaryKey: true, nullable: false}}
+              - column: {name: name, type: VARCHAR(100), constraints: {nullable: false, unique: true}}
+              - column: {name: description, type: TEXT, constraints: {nullable: true}}
+              - column: {name: scope, type: VARCHAR(50), constraints: {nullable: false}, defaultValue: "PLATFORM"}
+              - column: {name: created_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: updated_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: version, type: INT, constraints: {nullable: false}, defaultValue: "0"}
+              - column: {name: tenant_id, type: UUID, constraints: {nullable: true}}
+
+  - changeSet:
+      id: 004-create-role-permissions-table
+      author: iscm-team
+      changes:
+        - createTable:
+            tableName: role_permissions
+            columns:
+              - column: {name: id, type: UUID, constraints: {primaryKey: true, nullable: false}}
+              - column: {name: role_id, type: UUID, constraints: {nullable: false}}
+              - column: {name: permission_id, type: UUID, constraints: {nullable: false}}
+              - column: {name: assigned_at, type: TIMESTAMP, constraints: {nullable: false}}
+            constraints:
+              - uniqueConstraint: {columnNames: role_id, permission_id, constraintName: uk_role_permission}
+        - addForeignKeyConstraint:
+            baseTableName: role_permissions
+            baseColumnNames: role_id
+            constraintName: fk_role_permissions_role
+            referencedTableName: roles
+            referencedColumnNames: id
+        - addForeignKeyConstraint:
+            baseTableName: role_permissions
+            baseColumnNames: permission_id
+            constraintName: fk_role_permissions_permission
+            referencedTableName: permissions
+            referencedColumnNames: id
+
+  - changeSet:
+      id: 005-create-users-table
+      author: iscm-team
+      changes:
+        - createTable:
+            tableName: users
+            columns:
+              - column: {name: id, type: UUID, constraints: {primaryKey: true, nullable: false}}
+              - column: {name: organization_id, type: UUID, constraints: {nullable: true}}
+              - column: {name: email, type: VARCHAR(255), constraints: {nullable: false, unique: true}}
+              - column: {name: password_hash, type: VARCHAR(255), constraints: {nullable: false}}
+              - column: {name: first_name, type: VARCHAR(100), constraints: {nullable: true}}
+              - column: {name: last_name, type: VARCHAR(100), constraints: {nullable: true}}
+              - column: {name: phone, type: VARCHAR(20), constraints: {nullable: true}}
+              - column: {name: is_active, type: BOOLEAN, constraints: {nullable: false}, defaultValue: "true"}
+              - column: {name: auth_provider, type: VARCHAR(50), constraints: {nullable: false}, defaultValue: "local"}
+              - column: {name: last_login_at, type: TIMESTAMP, constraints: {nullable: true}}
+              - column: {name: failed_login_attempts, type: INT, constraints: {nullable: false}, defaultValue: "0"}
+              - column: {name: account_locked_until, type: TIMESTAMP, constraints: {nullable: true}}
+              - column: {name: created_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: updated_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: version, type: INT, constraints: {nullable: false}, defaultValue: "0"}
+              - column: {name: tenant_id, type: UUID, constraints: {nullable: true}}
+        - addForeignKeyConstraint:
+            baseTableName: users
+            baseColumnNames: organization_id
+            constraintName: fk_users_organization
+            referencedTableName: organizations
+            referencedColumnNames: id
+        - createIndex:
+            indexName: idx_users_email
+            tableName: users
+            columns:
+              - column: {name: email}
+        - createIndex:
+            indexName: idx_users_organization
+            tableName: users
+            columns:
+              - column: {name: organization_id}
+
+  - changeSet:
+      id: 006-create-user-roles-table
+      author: iscm-team
+      changes:
+        - createTable:
+            tableName: user_roles
+            columns:
+              - column: {name: id, type: UUID, constraints: {primaryKey: true, nullable: false}}
+              - column: {name: user_id, type: UUID, constraints: {nullable: false}}
+              - column: {name: role_id, type: UUID, constraints: {nullable: false}}
+              - column: {name: assigned_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: assigned_by, type: UUID, constraints: {nullable: true}}
+              - column: {name: tenant_id, type: UUID, constraints: {nullable: true}}
+            constraints:
+              - uniqueConstraint: {columnNames: user_id, role_id, constraintName: uk_user_role}
+        - addForeignKeyConstraint:
+            baseTableName: user_roles
+            baseColumnNames: user_id
+            constraintName: fk_user_roles_user
+            referencedTableName: users
+            referencedColumnNames: id
+        - addForeignKeyConstraint:
+            baseTableName: user_roles
+            baseColumnNames: role_id
+            constraintName: fk_user_roles_role
+            referencedTableName: roles
+            referencedColumnNames: id
+        - createIndex:
+            indexName: idx_user_roles_user
+            tableName: user_roles
+            columns:
+              - column: {name: user_id}
+
+  - changeSet:
+      id: 007-create-user-sessions-table
+      author: iscm-team
+      changes:
+        - createTable:
+            tableName: user_sessions
+            columns:
+              - column: {name: id, type: UUID, constraints: {primaryKey: true, nullable: false}}
+              - column: {name: user_id, type: UUID, constraints: {nullable: false}}
+              - column: {name: refresh_token_hash, type: VARCHAR(255), constraints: {nullable: false}}
+              - column: {name: user_agent, type: TEXT, constraints: {nullable: true}}
+              - column: {name: ip_address, type: VARCHAR(45), constraints: {nullable: true}}
+              - column: {name: expires_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: revoked, type: BOOLEAN, constraints: {nullable: false}, defaultValue: "false"}
+              - column: {name: created_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: updated_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: version, type: INT, constraints: {nullable: false}, defaultValue: "0"}
+              - column: {name: tenant_id, type: UUID, constraints: {nullable: true}}
+        - addForeignKeyConstraint:
+            baseTableName: user_sessions
+            baseColumnNames: user_id
+            constraintName: fk_user_sessions_user
+            referencedTableName: users
+            referencedColumnNames: id
+        - createIndex:
+            indexName: idx_user_sessions_user
+            tableName: user_sessions
+            columns:
+              - column: {name: user_id}
+        - createIndex:
+            indexName: idx_user_sessions_expires
+            tableName: user_sessions
+            columns:
+              - column: {name: expires_at}
+
+  - changeSet:
+      id: 008-insert-initial-data
+      author: iscm-team
+      changes:
+        - insert:
+            tableName: organizations
+            columns:
+              - column: {name: id, value: "00000000-0000-0000-0000-000000000001"}
+              - column: {name: name, value: "ISCM Platform"}
+              - column: {name: domain, value: "iscm-platform.com"}
+              - column: {name: created_at, value: "now()"}
+              - column: {name: updated_at, value: "now()"}
+
+        - insert:
+            tableName: permissions
+            columns:
+              - column: {name: id, value: "00000000-0000-0000-0000-000000000101"}
+              - column: {name: code, value: "USER_READ"}
+              - column: {name: description, value: "Read user information"}
+              - column: {name: created_at, value: "now()"}
+              - column: {name: updated_at, value: "now()"}
+
+        - insert:
+            tableName: permissions
+            columns:
+              - column: {name: id, value: "00000000-0000-0000-0000-000000000102"}
+              - column: {name: code, value: "USER_WRITE"}
+              - column: {name: description, value: "Create/update users"}
+              - column: {name: created_at, value: "now()"}
+              - column: {name: updated_at, value: "now()"}
+
+        - insert:
+            tableName: roles
+            columns:
+              - column: {name: id, value: "00000000-0000-0000-0000-000000000201"}
+              - column: {name: name, value: "SUPER_ADMIN"}
+              - column: {name: description, value: "Super Administrator with full access"}
+              - column: {name: scope, value: "PLATFORM"}
+              - column: {name: created_at, value: "now()"}
+              - column: {name: updated_at, value: "now()"}
+
+        - insert:
+            tableName: role_permissions
+            columns:
+              - column: {name: id, value: "00000000-0000-0000-0000-000000000301"}
+              - column: {name: role_id, value: "00000000-0000-0000-0000-000000000201"}
+              - column: {name: permission_id, value: "00000000-0000-0000-0000-000000000101"}
+              - column: {name: assigned_at, value: "now()"}
+
+        - insert:
+            tableName: role_permissions
+            columns:
+              - column: {name: id, value: "00000000-0000-0000-0000-000000000302"}
+              - column: {name: role_id, value: "00000000-0000-0000-0000-000000000201"}
+              - column: {name: permission_id, value: "00000000-0000-0000-0000-000000000102"}
+              - column: {name: assigned_at, value: "now()"}
