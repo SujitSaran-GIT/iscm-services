@@ -48,4 +48,8 @@ public class PasswordService {
         }
         return String.join(", ", passwordValidator.getMessages(result));
     }
+
+    public boolean isValidPassword(String password) {
+        return passwordValidator.validate(new PasswordData(password)).isValid();
+    }
 }

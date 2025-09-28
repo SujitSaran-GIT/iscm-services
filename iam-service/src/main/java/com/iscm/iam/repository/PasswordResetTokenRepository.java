@@ -21,5 +21,7 @@ public interface PasswordResetTokenRepository extends JpaRepository<PasswordRese
     @Query("SELECT prt FROM PasswordResetToken prt WHERE prt.user.id = :userId AND prt.isUsed = false")
     List<PasswordResetToken> findByUserIdAndIsUsedFalse(@Param("userId") UUID userId);
 
+    void deleteByUserId(UUID userId);
+
     void deleteAllByExpiresAtBefore(java.time.LocalDateTime dateTime);
 }

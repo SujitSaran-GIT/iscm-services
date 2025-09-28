@@ -44,32 +44,52 @@ public class AuthResponse {
     public static class UserDto {
         @Schema(description = "User ID", example = "123e4567-e89b-12d3-a456-426614174000")
         private String id;
-        
+
         @Schema(description = "User email", example = "user@example.com")
         private String email;
-        
+
         @Schema(description = "First name", example = "John")
         private String firstName;
-        
+
         @Schema(description = "Last name", example = "Doe")
         private String lastName;
-        
-        @Schema(description = "Full name", example = "John Doe")
-        private String fullName;
-        
+
+        @Schema(description = "Phone number", example = "+1234567890")
+        private String phoneNumber;
+
+        @Schema(description = "Email verification status", example = "false")
+        private Boolean emailVerified;
+
+        @Schema(description = "MFA enabled status", example = "false")
+        private Boolean mfaEnabled;
+
+        @Schema(description = "Account active status", example = "true")
+        private Boolean active;
+
+        @Schema(description = "Account creation timestamp", example = "2024-01-01T00:00:00Z")
+        private String createdAt;
+
+        @Schema(description = "Account last update timestamp", example = "2024-01-01T00:00:00Z")
+        private String updatedAt;
+
         @Schema(description = "User roles", example = "[\"USER\", \"ADMIN\"]")
         private List<String> roles;
-        
+
         @Schema(description = "Tenant ID for multi-tenancy", example = "123e4567-e89b-12d3-a456-426614174000")
         private UUID tenantId;
-        
+
         public static UserDto fromEntity(User user) {
             return UserDto.builder()
                     .id(user.getId().toString())
                     .email(user.getEmail())
                     .firstName(user.getFirstName())
                     .lastName(user.getLastName())
-                    .fullName(user.getFullName())
+                    .phoneNumber(user.getPhone())
+                    .emailVerified(false) // You can implement email verification logic
+                    .mfaEnabled(user.getMfaEnabled())
+                    .active(user.getIsActive())
+                    .createdAt(user.getCreatedAt() != null ? user.getCreatedAt().toString() : null)
+                    .updatedAt(user.getUpdatedAt() != null ? user.getUpdatedAt().toString() : null)
                     .roles(user.getUserRoles().stream().map(userRole -> userRole.getRole().getName()).toList())
                     .tenantId(user.getTenantId())
                     .build();

@@ -1,11 +1,18 @@
 package com.iscm.iam.service;
 
+import com.iscm.iam.dto.UserUpdateRequest;
+import com.iscm.iam.exception.UserDeletionException;
 import com.iscm.iam.model.Permission;
 import com.iscm.iam.model.Role;
 import com.iscm.iam.model.User;
 import com.iscm.iam.model.UserRole;
+import com.iscm.iam.repository.DeviceRepository;
+import com.iscm.iam.repository.OAuthAccountRepository;
+import com.iscm.iam.repository.PasswordResetTokenRepository;
 import com.iscm.iam.repository.RoleRepository;
 import com.iscm.iam.repository.UserRepository;
+import com.iscm.iam.repository.UserRoleRepository;
+import com.iscm.iam.repository.UserSessionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.GrantedAuthority;
@@ -29,6 +36,11 @@ public class UserService implements UserDetailsService {
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final UserRoleRepository userRoleRepository;
+    private final DeviceRepository deviceRepository;
+    private final OAuthAccountRepository oauthAccountRepository;
+    private final PasswordResetTokenRepository passwordResetTokenRepository;
+    private final UserSessionRepository userSessionRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -102,5 +114,111 @@ public class UserService implements UserDetailsService {
 
     public boolean existsByEmail(String email) {
         return userRepository.existsByEmail(email);
+    }
+
+    @Transactional
+    public User updateUser(UUID userId, UserUpdateRequest updateRequest) {
+        User user = findById(userId);
+
+        if (updateRequest.getEmail() != null && !updateRequest.getEmail().equals(user.getEmail())) {
+            if (existsByEmail(updateRequest.getEmail())) {
+                throw new RuntimeException("Email already exists: " + updateRequest.getEmail());
+            }
+            user.setEmail(updateRequest.getEmail());
+        }
+
+        if (updateRequest.getFirstName() != null) {
+            user.setFirstName(updateRequest.getFirstName());
+        }
+
+        if (updateRequest.getLastName() != null) {
+            user.setLastName(updateRequest.getLastName());
+        }
+
+        if (updateRequest.getPhoneNumber() != null) {
+            user.setPhone(updateRequest.getPhoneNumber());
+        }
+
+        return userRepository.save(user);
+    }
+
+    @Transactional
+    public void deleteUser(UUID userId) {
+        User user = findById(userId);
+        userRepository.delete(user);
+    }
+
+    @Transactional
+    public User updateCurrentUser(String email, UserUpdateRequest updateRequest) {
+        User user = findByEmail(email);
+
+        // Update email if provided and different
+        if (updateRequest.getEmail() != null && !updateRequest.getEmail().equals(user.getEmail())) {
+            if (existsByEmail(updateRequest.getEmail())) {
+                throw new RuntimeException("Email already exists: " + updateRequest.getEmail());
+            }
+            user.setEmail(updateRequest.getEmail());
+        }
+
+        // Update first name if provided
+        if (updateRequest.getFirstName() != null) {
+            user.setFirstName(updateRequest.getFirstName());
+        }
+
+        // Update last name if provided
+        if (updateRequest.getLastName() != null) {
+            user.setLastName(updateRequest.getLastName());
+        }
+
+        // Update phone number if provided
+        if (updateRequest.getPhoneNumber() != null) {
+            user.setPhone(updateRequest.getPhoneNumber());
+        }
+
+        return userRepository.save(user);
+    }
+
+    @Transactional
+    public void deleteCurrentUser(String email) {
+        log.info("Starting deletion process for user: {}", email);
+
+        try {
+            // Find the user
+            User user = findByEmail(email);
+            UUID userId = user.getId();
+
+            // Delete user roles
+            log.debug("Deleting user roles for user: {}", userId);
+            userRoleRepository.deleteByUserId(userId);
+
+            // Delete user devices
+            log.debug("Deleting user devices for user: {}", userId);
+            deviceRepository.deleteByUserId(userId);
+
+            // Delete OAuth accounts
+            log.debug("Deleting OAuth accounts for user: {}", userId);
+            oauthAccountRepository.deleteByUserId(userId);
+
+            // Delete password reset tokens
+            log.debug("Deleting password reset tokens for user: {}", userId);
+            passwordResetTokenRepository.deleteByUserId(userId);
+
+            // Delete user sessions
+            log.debug("Deleting user sessions for user: {}", userId);
+            userSessionRepository.deleteByUserId(userId);
+
+            // Finally delete the user
+            log.debug("Deleting user: {}", userId);
+            userRepository.delete(user);
+
+            log.info("Successfully deleted user and all related data for: {}", email);
+
+        } catch (UsernameNotFoundException e) {
+            log.error("User not found for deletion: {}", email);
+            throw new UserDeletionException("User not found: " + email, e);
+        } catch (Exception e) {
+            log.error("Error deleting user {}: {}", email, e.getMessage(), e);
+            throw new UserDeletionException("Failed to delete user profile: " + e.getMessage(), e);
+        }
     }
 }

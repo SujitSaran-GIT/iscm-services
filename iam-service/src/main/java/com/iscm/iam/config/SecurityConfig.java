@@ -5,12 +5,13 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -47,7 +48,15 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new UnlimitedLengthPasswordEncoder(); // Custom encoder that handles passwords of any length
+        return new UnlimitedLengthPasswordEncoder();
+    }
+
+    @Bean
+    public DaoAuthenticationProvider authenticationProvider() {
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
+        authProvider.setUserDetailsService(userService);
+        authProvider.setPasswordEncoder(passwordEncoder());
+        return authProvider;
     }
 
     @Bean
@@ -72,6 +81,7 @@ public class SecurityConfig {
                 .csrfTokenRequestHandler(requestHandler)
                 .ignoringRequestMatchers(
                     "/api/v1/auth/**",
+                    "/api/v1/users/me",
                     "/actuator/health",
                     "/v3/api-docs/**",
                     "/swagger-ui/**"
@@ -106,8 +116,12 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/**").hasRole("SUPER_ADMIN")
                 
                 // User management endpoints
-                .requestMatchers("/api/v1/users/me").authenticated()
-                .requestMatchers("/api/v1/users/**").hasAnyAuthority("USER_READ", "USER_WRITE")
+                .requestMatchers(HttpMethod.GET, "/api/v1/users/me").authenticated()
+                .requestMatchers(HttpMethod.PUT, "/api/v1/users/me").authenticated()
+                .requestMatchers(HttpMethod.DELETE, "/api/v1/users/me").authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/v1/users/{userId}").hasAnyAuthority("USER_READ")
+                .requestMatchers(HttpMethod.PUT, "/api/v1/users/{userId}").hasAnyAuthority("USER_WRITE")
+                .requestMatchers(HttpMethod.DELETE, "/api/v1/users/{userId}").hasRole("SUPER_ADMIN")
                 
                 // Admin endpoints
                 .requestMatchers("/api/v1/admin/**").hasRole("SUPER_ADMIN")

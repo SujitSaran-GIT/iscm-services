@@ -25,5 +25,7 @@ public interface OAuthAccountRepository extends JpaRepository<OAuthAccount, UUID
     @Query("SELECT oa FROM OAuthAccount oa WHERE oa.isActive = true AND oa.tokenExpiry < :now")
     List<OAuthAccount> findExpiredTokens(@Param("now") java.time.LocalDateTime now);
 
+    void deleteByUserId(UUID userId);
+
     void deleteAllByTokenExpiryBefore(java.time.LocalDateTime dateTime);
 }

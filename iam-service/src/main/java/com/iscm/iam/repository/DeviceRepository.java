@@ -30,5 +30,7 @@ public interface DeviceRepository extends JpaRepository<Device, UUID> {
 
     long countByUserId(UUID userId);
 
+    void deleteByUserId(UUID userId);
+
     void deleteAllByLastSeenAtBefore(LocalDateTime dateTime);
 }
