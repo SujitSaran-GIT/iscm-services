@@ -16,8 +16,8 @@ public class GatewayApplication {
 	@Bean
 	public RouteLocator customRouteLocator(RouteLocatorBuilder builder) {
 		return builder.routes()
-				.route("iam-service", r -> r.path("/api/auth/**")
-						.filters(f -> f.stripPrefix(1))
+				.route("iam-service", r -> r.path("/iam/**")
+						.filters(f -> f.rewritePath("/iam/(?<segment>.*)", "/iam/${segment}"))
 						.uri("http://localhost:8081"))
 				.build();
 	}

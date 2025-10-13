@@ -105,6 +105,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(authz -> authz
                 // Public endpoints
                 .requestMatchers(
+                    "/home",
                     "/api/v1/auth/**",
                     "/swagger-ui/**",
                     "/v3/api-docs/**",
