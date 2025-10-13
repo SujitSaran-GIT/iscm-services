@@ -18,7 +18,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(securityHeadersInterceptor)
                 .addPathPatterns("/**");
-        
+
         registry.addInterceptor(rateLimitingInterceptor)
                 .addPathPatterns("/api/**")
                 .excludePathPatterns("/actuator/health"); // Exclude health checks from rate limiting

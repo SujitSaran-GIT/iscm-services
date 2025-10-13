@@ -147,6 +147,12 @@
             <version>${mapstruct.version}</version>
         </dependency>
 
+		<!-- Jackson JSR310 for LocalDateTime serialization -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+
 		<!-- For generating secure random values -->
         <dependency>
             <groupId>org.apache.commons</groupId>
