@@ -1,0 +1,319 @@
+package com.iscm.iam.service;
+
+import com.iscm.iam.model.User;
+import com.iscm.iam.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.database.read-replica.enabled", havingValue = "true", matchIfMissing = false)
+public class ReadReplicaService {
+
+    private final JdbcTemplate readReplicaJdbcTemplate;
+    private final UserRepository userRepository;
+
+    @Value("${app.database.read-replica.cache.enabled:true}")
+    private boolean cacheEnabled;
+
+    @Value("${app.database.read-replica.cache.ttl:300}")
+    private int cacheTtlSeconds;
+
+    // Read-only queries that can be executed on read replicas
+
+    public Optional<User> findUserById(UUID userId) {
+        try {
+            log.debug("Reading user by ID from read replica: {}", userId);
+
+            String sql = "SELECT id, email, first_name, last_name, phone, created_at, updated_at, " +
+                        "account_non_locked, enabled, mfa_enabled, phone_verified, tenant_id " +
+                        "FROM users WHERE id = ?";
+
+            return readReplicaJdbcTemplate.queryForObject(
+                sql,
+                (rs, rowNum) -> {
+                    User user = new User();
+                    user.setId(UUID.fromString(rs.getString("id")));
+                    user.setEmail(rs.getString("email"));
+                    user.setFirstName(rs.getString("first_name"));
+                    user.setLastName(rs.getString("last_name"));
+                    user.setPhone(rs.getString("phone"));
+                    user.setCreatedAt(rs.getTimestamp("created_at").toLocalDateTime());
+                    user.setUpdatedAt(rs.getTimestamp("updated_at").toLocalDateTime());
+                    user.setAccountNonLocked(rs.getBoolean("account_non_locked"));
+                    user.setEnabled(rs.getBoolean("enabled"));
+                    user.setMfaEnabled(rs.getBoolean("mfa_enabled"));
+                    user.setPhoneVerified(rs.getBoolean("phone_verified"));
+
+                    String tenantId = rs.getString("tenant_id");
+                    user.setTenantId(tenantId != null ? UUID.fromString(tenantId) : null);
+
+                    return user;
+                },
+                userId.toString()
+            );
+
+        } catch (Exception e) {
+            log.error("Failed to read user by ID from read replica: {}", userId, e);
+            return Optional.empty();
+        }
+    }
+
+    public Optional<User> findUserByEmail(String email) {
+        try {
+            log.debug("Reading user by email from read replica: {}", email);
+
+            String sql = "SELECT id, email, first_name, last_name, phone, created_at, updated_at, " +
+                        "account_non_locked, enabled, mfa_enabled, phone_verified, tenant_id " +
+                        "FROM users WHERE email = ?";
+
+            User user = readReplicaJdbcTemplate.queryForObject(
+                sql,
+                (rs, rowNum) -> {
+                    User u = new User();
+                    u.setId(UUID.fromString(rs.getString("id")));
+                    u.setEmail(rs.getString("email"));
+                    u.setFirstName(rs.getString("first_name"));
+                    u.setLastName(rs.getString("last_name"));
+                    u.setPhone(rs.getString("phone"));
+                    u.setCreatedAt(rs.getTimestamp("created_at").toLocalDateTime());
+                    u.setUpdatedAt(rs.getTimestamp("updated_at").toLocalDateTime());
+                    u.setAccountNonLocked(rs.getBoolean("account_non_locked"));
+                    u.setEnabled(rs.getBoolean("enabled"));
+                    u.setMfaEnabled(rs.getBoolean("mfa_enabled"));
+                    u.setPhoneVerified(rs.getBoolean("phone_verified"));
+
+                    String tenantId = rs.getString("tenant_id");
+                    u.setTenantId(tenantId != null ? UUID.fromString(tenantId) : null);
+
+                    return u;
+                },
+                email
+            );
+
+            return Optional.of(user);
+
+        } catch (Exception e) {
+            log.error("Failed to read user by email from read replica: {}", email, e);
+            return Optional.empty();
+        }
+    }
+
+    public boolean existsByEmail(String email) {
+        try {
+            log.debug("Checking if user exists by email from read replica: {}", email);
+
+            String sql = "SELECT COUNT(*) FROM users WHERE email = ?";
+            Integer count = readReplicaJdbcTemplate.queryForObject(sql, Integer.class, email);
+
+            return count != null && count > 0;
+
+        } catch (Exception e) {
+            log.error("Failed to check user existence by email from read replica: {}", email, e);
+            return false;
+        }
+    }
+
+    public long countActiveUsers() {
+        try {
+            log.debug("Counting active users from read replica");
+
+            String sql = "SELECT COUNT(*) FROM users WHERE enabled = true AND account_non_locked = true";
+            Long count = readReplicaJdbcTemplate.queryForObject(sql, Long.class);
+
+            return count != null ? count : 0L;
+
+        } catch (Exception e) {
+            log.error("Failed to count active users from read replica", e);
+            return 0L;
+        }
+    }
+
+    public long countUsersByTenant(UUID tenantId) {
+        try {
+            log.debug("Counting users by tenant from read replica: {}", tenantId);
+
+            String sql = "SELECT COUNT(*) FROM users WHERE tenant_id = ?";
+            Long count = readReplicaJdbcTemplate.queryForObject(sql, Long.class, tenantId.toString());
+
+            return count != null ? count : 0L;
+
+        } catch (Exception e) {
+            log.error("Failed to count users by tenant from read replica: {}", tenantId, e);
+            return 0L;
+        }
+    }
+
+    public List<UUID> findInactiveUsers(LocalDateTime cutoff) {
+        try {
+            log.debug("Finding inactive users from read replica with cutoff: {}", cutoff);
+
+            String sql = "SELECT id FROM users WHERE last_login_at < ? OR last_login_at IS NULL ORDER BY last_login_at ASC NULLS FIRST";
+
+            return readReplicaJdbcTemplate.query(
+                sql,
+                (rs, rowNum) -> UUID.fromString(rs.getString("id")),
+                cutoff.toString()
+            );
+
+        } catch (Exception e) {
+            log.error("Failed to find inactive users from read replica", e);
+            return List.of();
+        }
+    }
+
+    public List<Object[]> getUsersByLoginRange(LocalDateTime startDate, LocalDateTime endDate) {
+        try {
+            log.debug("Finding users by login range from read replica: {} to {}", startDate, endDate);
+
+            String sql = "SELECT id, email, last_login_at FROM users WHERE last_login_at BETWEEN ? AND ? ORDER BY last_login_at DESC";
+
+            return readReplicaJdbcTemplate.query(
+                sql,
+                (rs, rowNum) -> new Object[]{
+                    rs.getString("id"),
+                    rs.getString("email"),
+                    rs.getTimestamp("last_login_at")
+                },
+                startDate.toString(),
+                endDate.toString()
+            );
+
+        } catch (Exception e) {
+            log.error("Failed to find users by login range from read replica", e);
+            return List.of();
+        }
+    }
+
+    public List<Object[]> getRecentUserRegistrations(int limit) {
+        try {
+            log.debug("Getting recent user registrations from read replica, limit: {}", limit);
+
+            String sql = "SELECT id, email, first_name, last_name, created_at FROM users ORDER BY created_at DESC LIMIT ?";
+
+            return readReplicaJdbcTemplate.query(
+                sql,
+                (rs, rowNum) -> new Object[]{
+                    rs.getString("id"),
+                    rs.getString("email"),
+                    rs.getString("first_name"),
+                    rs.getString("last_name"),
+                    rs.getTimestamp("created_at")
+                },
+                limit
+            );
+
+        } catch (Exception e) {
+            log.error("Failed to get recent user registrations from read replica", e);
+            return List.of();
+        }
+    }
+
+    // Analytics and reporting queries
+
+    public Map<String, Object> getUserStatistics() {
+        try {
+            log.debug("Getting user statistics from read replica");
+
+            Map<String, Object> stats = new HashMap<>();
+
+            // Total users
+            String totalSql = "SELECT COUNT(*) FROM users";
+            stats.put("totalUsers", readReplicaJdbcTemplate.queryForObject(totalSql, Long.class));
+
+            // Active users
+            String activeSql = "SELECT COUNT(*) FROM users WHERE enabled = true AND account_non_locked = true";
+            stats.put("activeUsers", readReplicaJdbcTemplate.queryForObject(activeSql, Long.class));
+
+            // MFA enabled users
+            String mfaSql = "SELECT COUNT(*) FROM users WHERE mfa_enabled = true";
+            stats.put("mfaEnabledUsers", readReplicaJdbcTemplate.queryForObject(mfaSql, Long.class));
+
+            // Phone verified users
+            String phoneSql = "SELECT COUNT(*) FROM users WHERE phone_verified = true";
+            stats.put("phoneVerifiedUsers", readReplicaJdbcTemplate.queryForObject(phoneSql, Long.class));
+
+            // Users created in last 24 hours
+            String recentSql = "SELECT COUNT(*) FROM users WHERE created_at >= NOW() - INTERVAL '24 hours'";
+            stats.put("recentRegistrations", readReplicaJdbcTemplate.queryForObject(recentSql, Long.class));
+
+            stats.put("generatedAt", LocalDateTime.now());
+
+            return stats;
+
+        } catch (Exception e) {
+            log.error("Failed to get user statistics from read replica", e);
+            return Map.of("error", "Failed to fetch statistics");
+        }
+    }
+
+    public Map<String, Object> getLoginStatistics() {
+        try {
+            log.debug("Getting login statistics from read replica");
+
+            Map<String, Object> stats = new HashMap<>();
+
+            // Users who logged in last 24 hours
+            String recentLoginSql = "SELECT COUNT(DISTINCT id) FROM users WHERE last_login_at >= NOW() - INTERVAL '24 hours'";
+            stats.put("recentLogins", readReplicaJdbcTemplate.queryForObject(recentLoginSql, Long.class));
+
+            // Users who never logged in
+            String neverLoggedInSql = "SELECT COUNT(*) FROM users WHERE last_login_at IS NULL";
+            stats.put("neverLoggedIn", readReplicaJdbcTemplate.queryForObject(neverLoggedInSql, Long.class));
+
+            // Average login attempts (this would require additional login_attempts table)
+            // stats.put("averageLoginAttempts", 0.0);
+
+            stats.put("generatedAt", LocalDateTime.now());
+
+            return stats;
+
+        } catch (Exception e) {
+            log.error("Failed to get login statistics from read replica", e);
+            return Map.of("error", "Failed to fetch login statistics");
+        }
+    }
+
+    // Health check for read replica
+    public boolean isReadReplicaHealthy() {
+        try {
+            // Simple health check query
+            Long count = readReplicaJdbcTemplate.queryForObject("SELECT 1", Long.class);
+            return count != null && count == 1;
+        } catch (Exception e) {
+            log.error("Read replica health check failed", e);
+            return false;
+        }
+    }
+
+    public Map<String, Object> getReadReplicaStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("healthy", isReadReplicaHealthy());
+        status.put("cacheEnabled", cacheEnabled);
+        status.put("cacheTtlSeconds", cacheTtlSeconds);
+        status.put("checkedAt", LocalDateTime.now());
+
+        try {
+            // Get read replica lag (if applicable)
+            String lagSql = "SELECT EXTRACT(EPOCH FROM (NOW() - (SELECT last_updated FROM replica_status))) as lag_seconds";
+            Double lag = readReplicaJdbcTemplate.queryForObject(lagSql, Double.class);
+            status.put("replicationLagSeconds", lag);
+        } catch (Exception e) {
+            status.put("replicationLagSeconds", "N/A");
+            log.debug("Could not fetch replication lag: {}", e.getMessage());
+        }
+
+        return status;
+    }
+}

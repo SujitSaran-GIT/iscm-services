@@ -1,0 +1,51 @@
+package com.iscm.iam.config;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
+
+@Slf4j
+public class RoutingDataSource extends AbstractRoutingDataSource {
+
+    private static final ThreadLocal<String> contextHolder = new ThreadLocal<>();
+    private static final String PRIMARY = "primary";
+    private static final String READ_REPLICA = "read-replica";
+
+    public static void setRead() {
+        contextHolder.set(READ_REPLICA);
+        log.debug("Routing to READ_REPLICA");
+    }
+
+    public static void setWrite() {
+        contextHolder.set(PRIMARY);
+        log.debug("Routing to PRIMARY");
+    }
+
+    public static void clear() {
+        contextHolder.remove();
+    }
+
+    @Override
+    protected Object determineCurrentLookupKey() {
+        String key = contextHolder.get();
+        if (key == null) {
+            key = PRIMARY; // Default to primary
+        }
+        return key;
+    }
+
+    @Override
+    public void afterPropertiesSet() {
+        super.afterPropertiesSet();
+        log.info("RoutingDataSource initialized with data sources: {}", getResolvedDataSources().keySet());
+    }
+
+    // Load balancing for read replicas
+    public static void setReadWithLoadBalancing() {
+        contextHolder.set(READ_REPLICA);
+        log.debug("Routing to READ_REPLICA with load balancing");
+    }
+}

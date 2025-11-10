@@ -1,0 +1,333 @@
+package com.gateway.controller;
+
+import com.gateway.config.AutoScalingConfig;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.util.*;
+
+@Slf4j
+@RestController
+@RequestMapping("/actuator/auto-scaling")
+@RequiredArgsConstructor
+public class AutoScalingController implements HealthIndicator {
+
+    private final AutoScalingConfig.AutoScalingManager autoScalingManager;
+    private final AutoScalingConfig.AutoScalingMetricsCollector metricsCollector;
+    private final AutoScalingConfig.ScalingDecisionEngine decisionEngine;
+
+    @GetMapping("/status")
+    public ResponseEntity<Map<String, Object>> getAutoScalingStatus() {
+        Map<String, Object> status = new HashMap<>();
+
+        try {
+            AutoScalingConfig.AutoScalingStatus scalingStatus = autoScalingManager.getScalingStatus();
+            AutoScalingConfig.AutoScalingMetrics currentMetrics = metricsCollector.collectMetrics();
+
+            status.put("scalingStatus", scalingStatus);
+            status.put("currentMetrics", currentMetrics);
+            status.put("timestamp", LocalDateTime.now());
+
+            return ResponseEntity.ok(status);
+
+        } catch (Exception e) {
+            log.error("Failed to get auto-scaling status", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Failed to retrieve auto-scaling status",
+                    "message", e.getMessage(),
+                    "timestamp", LocalDateTime.now()
+            ));
+        }
+    }
+
+    @GetMapping("/metrics")
+    public ResponseEntity<Map<String, Object>> getAutoScalingMetrics() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            AutoScalingConfig.AutoScalingMetrics metrics = metricsCollector.collectMetrics();
+
+            response.put("metrics", metrics);
+            response.put("thresholds", getThresholdsInfo());
+            response.put("recommendations", generateRecommendations(metrics));
+            response.put("timestamp", LocalDateTime.now());
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("Failed to get auto-scaling metrics", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Failed to retrieve auto-scaling metrics",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/evaluate")
+    public ResponseEntity<Map<String, Object>> evaluateScalingDecision() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            AutoScalingConfig.AutoScalingMetrics metrics = metricsCollector.collectMetrics();
+            AutoScalingConfig.ScalingDecision decision = autoScalingManager.evaluateScalingNeeds();
+
+            response.put("currentMetrics", metrics);
+            response.put("decision", decision);
+            response.put("wouldExecute", !"NONE".equals(decision.getAction()));
+            response.put("timestamp", LocalDateTime.now());
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("Failed to evaluate scaling decision", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Failed to evaluate scaling decision",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @PostMapping("/trigger-scale-up")
+    public ResponseEntity<Map<String, Object>> triggerScaleUp(@RequestParam(defaultValue = "1") int instances) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            AutoScalingConfig.ScalingDecision decision = new AutoScalingConfig.ScalingDecision();
+            decision.setAction("SCALE_UP");
+            decision.setReason("Manual scale-up trigger via API");
+            decision.setTargetInstances(Math.min(autoScalingManager.getScalingStatus().getCurrentInstances() + instances, 10));
+
+            autoScalingManager.executeScalingDecision(decision);
+
+            response.put("decision", decision);
+            response.put("status", "executed");
+            response.put("timestamp", LocalDateTime.now());
+
+            log.info("Manual scale-up triggered: {}", decision);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("Failed to trigger scale-up", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Failed to trigger scale-up",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @PostMapping("/trigger-scale-down")
+    public ResponseEntity<Map<String, Object>> triggerScaleDown(@RequestParam(defaultValue = "1") int instances) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            AutoScalingConfig.ScalingDecision decision = new AutoScalingConfig.ScalingDecision();
+            decision.setAction("SCALE_DOWN");
+            decision.setReason("Manual scale-down trigger via API");
+            decision.setTargetInstances(Math.max(autoScalingManager.getScalingStatus().getCurrentInstances() - instances, 2));
+
+            autoScalingManager.executeScalingDecision(decision);
+
+            response.put("decision", decision);
+            response.put("status", "executed");
+            response.put("timestamp", LocalDateTime.now());
+
+            log.info("Manual scale-down triggered: {}", decision);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("Failed to trigger scale-down", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Failed to trigger scale-down",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/history")
+    public ResponseEntity<Map<String, Object>> getScalingHistory() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // In a real implementation, this would query a database or log store
+            List<Map<String, Object>> history = new ArrayList<>();
+
+            // Simulate some historical scaling events
+            for (int i = 5; i >= 1; i--) {
+                Map<String, Object> event = new HashMap<>();
+                event.put("timestamp", LocalDateTime.now().minusHours(i));
+                event.put("action", i % 2 == 0 ? "SCALE_UP" : "SCALE_DOWN");
+                event.put("instances", i + 2);
+                event.put("reason", "Performance threshold exceeded");
+                history.add(event);
+            }
+
+            response.put("history", history);
+            response.put("totalEvents", history.size());
+            response.put("timestamp", LocalDateTime.now());
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("Failed to get scaling history", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Failed to retrieve scaling history",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/policies")
+    public ResponseEntity<Map<String, Object>> getScalingPolicies() {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            response.put("policies", getPoliciesInfo());
+            response.put("thresholds", getThresholdsInfo());
+            response.put("configuration", getConfigurationInfo());
+            response.put("timestamp", LocalDateTime.now());
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("Failed to get scaling policies", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Failed to retrieve scaling policies",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @PutMapping("/policies")
+    public ResponseEntity<Map<String, Object>> updateScalingPolicy(@RequestBody Map<String, Object> policyUpdate) {
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // In a real implementation, this would update the configuration
+            log.info("Policy update requested: {}", policyUpdate);
+
+            response.put("status", "success");
+            response.put("message", "Scaling policies updated successfully");
+            response.put("updatedPolicies", policyUpdate);
+            response.put("timestamp", LocalDateTime.now());
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("Failed to update scaling policies", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Failed to update scaling policies",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @Override
+    public org.springframework.boot.actuate.health.Health health() {
+        try {
+            AutoScalingConfig.AutoScalingStatus status = autoScalingManager.getScalingStatus();
+            AutoScalingConfig.AutoScalingMetrics metrics = metricsCollector.collectMetrics();
+
+            Map<String, Object> details = new HashMap<>();
+            details.put("scalingStatus", status);
+            details.put("currentMetrics", metrics);
+            details.put("autoScalingEnabled", true);
+
+            // Determine health based on metrics
+            boolean healthy = metrics.getCpuUsage() < 90 && metrics.getMemoryUsage() < 90;
+
+            return healthy ?
+                    org.springframework.boot.actuate.health.Health.up().withDetail("autoScaling", details).build() :
+                    org.springframework.boot.actuate.health.Health.down().withDetail("autoScaling", details).build();
+
+        } catch (Exception e) {
+            log.error("Auto-scaling health check failed", e);
+            return org.springframework.boot.actuate.health.Health.down()
+                    .withDetail("error", e.getMessage())
+                    .build();
+        }
+    }
+
+    private Map<String, Object> getThresholdsInfo() {
+        Map<String, Object> thresholds = new HashMap<>();
+
+        Map<String, Object> cpuThresholds = new HashMap<>();
+        cpuThresholds.put("scaleUp", 70.0);
+        cpuThresholds.put("scaleDown", 30.0);
+        thresholds.put("cpu", cpuThresholds);
+
+        Map<String, Object> memoryThresholds = new HashMap<>();
+        memoryThresholds.put("scaleUp", 80.0);
+        memoryThresholds.put("scaleDown", 40.0);
+        thresholds.put("memory", memoryThresholds);
+
+        Map<String, Object> requestRateThresholds = new HashMap<>();
+        requestRateThresholds.put("scaleUp", 100);
+        requestRateThresholds.put("scaleDown", 20);
+        thresholds.put("requestRate", requestRateThresholds);
+
+        Map<String, Object> responseTimeThresholds = new HashMap<>();
+        responseTimeThresholds.put("scaleUp", 2000L);
+        responseTimeThresholds.put("scaleDown", 500L);
+        thresholds.put("responseTime", responseTimeThresholds);
+
+        return thresholds;
+    }
+
+    private Map<String, Object> getPoliciesInfo() {
+        Map<String, Object> policies = new HashMap<>();
+
+        policies.put("minInstances", 2);
+        policies.put("maxInstances", 10);
+        policies.put("cooldownPeriod", 300);
+        policies.put("evaluationInterval", 30000);
+        policies.put("strategy", "composite-metrics");
+        policies.put("enabled", true);
+
+        return policies;
+    }
+
+    private Map<String, Object> getConfigurationInfo() {
+        Map<String, Object> config = new HashMap<>();
+
+        config.put("evaluationIntervalMs", 30000);
+        config.put("cooldownPeriodSeconds", 300);
+        config.put("metricsCollectionEnabled", true);
+        config.put("automaticScalingEnabled", true);
+        config.put("manualScalingAllowed", true);
+        config.put("decisionEngine", "composite");
+
+        return config;
+    }
+
+    private List<String> generateRecommendations(AutoScalingConfig.AutoScalingMetrics metrics) {
+        List<String> recommendations = new ArrayList<>();
+
+        if (metrics.getCpuUsage() > 80) {
+            recommendations.add("High CPU usage detected. Consider scaling up or optimizing resource usage.");
+        }
+
+        if (metrics.getMemoryUsage() > 85) {
+            recommendations.add("High memory usage detected. Consider scaling up or investigating memory leaks.");
+        }
+
+        if (metrics.getRequestRatePerSecond() > 150) {
+            recommendations.add("High request rate detected. Ensure load balancing is properly configured.");
+        }
+
+        if (metrics.getAverageResponseTime() > 3000) {
+            recommendations.add("High response times detected. Consider scaling up or performance optimization.");
+        }
+
+        if (recommendations.isEmpty()) {
+            recommendations.add("All metrics are within normal ranges. No scaling action required.");
+        }
+
+        return recommendations;
+    }
+}

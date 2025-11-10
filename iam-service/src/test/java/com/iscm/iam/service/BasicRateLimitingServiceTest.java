@@ -8,10 +8,10 @@ import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class RateLimitingServiceTest extends BaseIntegrationTest {
+class BasicRateLimitingServiceTest extends BaseIntegrationTest {
 
     @Autowired
-    private RateLimitingService rateLimitingService;
+    private BasicRateLimitingService rateLimitingService;
 
     @Test
     void testRateLimitingWithinLimit() {

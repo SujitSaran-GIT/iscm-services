@@ -1,7 +1,7 @@
 package com.iscm.iam.interceptor;
 
 import com.iscm.iam.config.RateLimitProperties;
-import com.iscm.iam.service.RateLimitingService;
+import com.iscm.iam.service.BasicRateLimitingService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -17,7 +17,7 @@ import java.time.Duration;
 @RequiredArgsConstructor
 public class RateLimitingInterceptor implements HandlerInterceptor {
 
-    private final RateLimitingService rateLimitingService;
+    private final BasicRateLimitingService rateLimitingService;
     private final RateLimitProperties rateLimitProperties;
 
     @Override

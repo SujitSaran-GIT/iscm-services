@@ -1,0 +1,426 @@
+package com.gateway.config;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.boot.actuate.health.Status;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+
+import java.time.LocalDateTime;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
+@Slf4j
+@Configuration
+@EnableScheduling
+@ConditionalOnProperty(name = "app.auto-scaling.enabled", havingValue = "true", matchIfMissing = true)
+public class AutoScalingConfig {
+
+    @Value("${app.auto-scaling.cpu.threshold.scale-up:70}")
+    private double cpuScaleUpThreshold;
+
+    @Value("${app.auto-scaling.cpu.threshold.scale-down:30}")
+    private double cpuScaleDownThreshold;
+
+    @Value("${app.auto-scaling.memory.threshold.scale-up:80}")
+    private double memoryScaleUpThreshold;
+
+    @Value("${app.auto-scaling.memory.threshold.scale-down:40}")
+    private double memoryScaleDownThreshold;
+
+    @Value("${app.auto-scaling.request-rate.threshold.scale-up:100}")
+    private int requestRateScaleUpThreshold;
+
+    @Value("${app.auto-scaling.request-rate.threshold.scale-down:20}")
+    private int requestRateScaleDownThreshold;
+
+    @Value("${app.auto-scaling.response-time.threshold.scale-up:2000}")
+    private long responseTimeScaleUpThreshold;
+
+    @Value("${app.auto-scaling.response-time.threshold.scale-down:500}")
+    private long responseTimeScaleDownThreshold;
+
+    @Value("${app.auto-scaling.min.instances:2}")
+    private int minInstances;
+
+    @Value("${app.auto-scaling.max.instances:10}")
+    private int maxInstances;
+
+    @Value("${app.auto-scaling.cooldown-period:300}")
+    private int cooldownPeriodSeconds;
+
+    private final AtomicInteger currentInstanceCount = new AtomicInteger(2);
+    private final ConcurrentHashMap<String, LocalDateTime> lastScaleActions = new ConcurrentHashMap<>();
+    private final MetricsCollector metricsCollector = new MetricsCollector();
+
+    @Bean
+    public AutoScalingManager autoScalingManager() {
+        return new AutoScalingManager();
+    }
+
+    @Bean
+    public AutoScalingMetricsCollector autoScalingMetricsCollector() {
+        return new AutoScalingMetricsCollector();
+    }
+
+    @Bean
+    public ScalingDecisionEngine scalingDecisionEngine() {
+        return new ScalingDecisionEngine();
+    }
+
+    public class AutoScalingManager {
+
+        public ScalingDecision evaluateScalingNeeds() {
+            AutoScalingMetrics metrics = metricsCollector.collectMetrics();
+            ScalingDecision decision = new ScalingDecision();
+
+            // Check cooldown period
+            if (!isCooldownPeriodExpired()) {
+                decision.setAction("NONE");
+                decision.setReason("Cooldown period active");
+                return decision;
+            }
+
+            // Evaluate scale-up conditions
+            if (shouldScaleUp(metrics)) {
+                decision.setAction("SCALE_UP");
+                decision.setReason("Performance thresholds exceeded");
+                decision.setTargetInstances(Math.min(currentInstanceCount.get() + 1, maxInstances));
+                return decision;
+            }
+
+            // Evaluate scale-down conditions
+            if (shouldScaleDown(metrics)) {
+                decision.setAction("SCALE_DOWN");
+                decision.setReason("Performance thresholds below minimum");
+                decision.setTargetInstances(Math.max(currentInstanceCount.get() - 1, minInstances));
+                return decision;
+            }
+
+            decision.setAction("NONE");
+            decision.setReason("No scaling needed");
+            return decision;
+        }
+
+        public void executeScalingDecision(ScalingDecision decision) {
+            if (!"NONE".equals(decision.getAction())) {
+                log.info("Executing scaling decision: {} - {}", decision.getAction(), decision.getReason());
+
+                // In a real implementation, this would call container orchestration APIs
+                // For demonstration, we'll simulate the scaling action
+                simulateScalingAction(decision);
+
+                lastScaleActions.put(decision.getAction(), LocalDateTime.now());
+                currentInstanceCount.set(decision.getTargetInstances());
+            }
+        }
+
+        private boolean shouldScaleUp(AutoScalingMetrics metrics) {
+            return currentInstanceCount.get() < maxInstances && (
+                metrics.getCpuUsage() > cpuScaleUpThreshold ||
+                metrics.getMemoryUsage() > memoryScaleUpThreshold ||
+                metrics.getRequestRatePerSecond() > requestRateScaleUpThreshold ||
+                metrics.getAverageResponseTime() > responseTimeScaleUpThreshold
+            );
+        }
+
+        private boolean shouldScaleDown(AutoScalingMetrics metrics) {
+            return currentInstanceCount.get() > minInstances && (
+                metrics.getCpuUsage() < cpuScaleDownThreshold &&
+                metrics.getMemoryUsage() < memoryScaleDownThreshold &&
+                metrics.getRequestRatePerSecond() < requestRateScaleDownThreshold &&
+                metrics.getAverageResponseTime() < responseTimeScaleDownThreshold
+            );
+        }
+
+        private boolean isCooldownPeriodExpired() {
+            LocalDateTime lastScale = lastScaleActions.values().stream()
+                    .max(LocalDateTime::compareTo)
+                    .orElse(LocalDateTime.now().minusSeconds(cooldownPeriodSeconds + 1));
+
+            return lastScale.isBefore(LocalDateTime.now().minusSeconds(cooldownPeriodSeconds));
+        }
+
+        private void simulateScalingAction(ScalingDecision decision) {
+            log.info("Simulating scaling action: {} to {} instances",
+                    decision.getAction(), decision.getTargetInstances());
+
+            // Simulate API calls to orchestration platform
+            if ("SCALE_UP".equals(decision.getAction())) {
+                log.info("Calling orchestration API to scale up service instances");
+            } else if ("SCALE_DOWN".equals(decision.getAction())) {
+                log.info("Calling orchestration API to scale down service instances");
+            }
+        }
+
+        public AutoScalingStatus getScalingStatus() {
+            AutoScalingStatus status = new AutoScalingStatus();
+            status.setCurrentInstances(currentInstanceCount.get());
+            status.setMinInstances(minInstances);
+            status.setMaxInstances(maxInstances);
+            status.setLastScaleAction(lastScaleActions.entrySet().stream()
+                    .max((e1, e2) -> e1.getValue().compareTo(e2.getValue()))
+                    .map(entry -> entry.getKey() + " at " + entry.getValue())
+                    .orElse("None"));
+            status.setCooldownActive(!isCooldownPeriodExpired());
+            return status;
+        }
+    }
+
+    public class AutoScalingMetricsCollector {
+        private final AtomicInteger requestCount = new AtomicInteger(0);
+        private final long totalResponseTime = 0;
+        private volatile double currentCpuUsage = 0.0;
+        private volatile double currentMemoryUsage = 0.0;
+
+        public AutoScalingMetrics collectMetrics() {
+            AutoScalingMetrics metrics = new AutoScalingMetrics();
+
+            // Collect CPU usage (simulated - in real implementation would use system metrics)
+            metrics.setCpuUsage(getCurrentCpuUsage());
+
+            // Collect memory usage (simulated)
+            metrics.setMemoryUsage(getCurrentMemoryUsage());
+
+            // Calculate request rate
+            int requests = requestCount.getAndSet(0);
+            metrics.setRequestRatePerSecond(requests);
+
+            // Calculate average response time (simulated)
+            metrics.setAverageResponseTime(getCurrentAverageResponseTime());
+
+            metrics.setTimestamp(LocalDateTime.now());
+
+            log.debug("Collected auto-scaling metrics: {}", metrics);
+            return metrics;
+        }
+
+        public void recordRequest() {
+            requestCount.incrementAndGet();
+        }
+
+        public void recordResponseTime(long responseTime) {
+            // In a real implementation, we would calculate rolling average
+            // For now, simulate with random variation
+        }
+
+        private double getCurrentCpuUsage() {
+            // Simulate CPU usage with some randomness
+            return Math.max(0, Math.min(100, 50 + (Math.random() - 0.5) * 40));
+        }
+
+        private double getCurrentMemoryUsage() {
+            // Simulate memory usage with some randomness
+            return Math.max(0, Math.min(100, 60 + (Math.random() - 0.5) * 30));
+        }
+
+        private long getCurrentAverageResponseTime() {
+            // Simulate response time in milliseconds
+            return (long) Math.max(100, 500 + (Math.random() - 0.5) * 800);
+        }
+    }
+
+    public class ScalingDecisionEngine {
+
+        public ScalingDecision makeDecision(AutoScalingMetrics metrics, ScalingContext context) {
+            ScalingDecision decision = new ScalingDecision();
+
+            // Apply machine learning or rule-based logic for scaling decisions
+            double compositeScore = calculateCompositeScore(metrics);
+
+            if (compositeScore > 0.8 && context.getCurrentInstances() < maxInstances) {
+                decision.setAction("SCALE_UP");
+                decision.setTargetInstances(Math.min(context.getCurrentInstances() + 1, maxInstances));
+                decision.setReason("High composite performance score: " + String.format("%.2f", compositeScore));
+                decision.setConfidence(calculateConfidence(metrics, true));
+            } else if (compositeScore < 0.3 && context.getCurrentInstances() > minInstances) {
+                decision.setAction("SCALE_DOWN");
+                decision.setTargetInstances(Math.max(context.getCurrentInstances() - 1, minInstances));
+                decision.setReason("Low composite performance score: " + String.format("%.2f", compositeScore));
+                decision.setConfidence(calculateConfidence(metrics, false));
+            } else {
+                decision.setAction("NONE");
+                decision.setReason("Performance score within acceptable range: " + String.format("%.2f", compositeScore));
+                decision.setConfidence(0.5);
+            }
+
+            return decision;
+        }
+
+        private double calculateCompositeScore(AutoScalingMetrics metrics) {
+            // Calculate weighted composite score from all metrics
+            double cpuScore = normalizeScore(metrics.getCpuUsage(), 0, 100);
+            double memoryScore = normalizeScore(metrics.getMemoryUsage(), 0, 100);
+            double requestRateScore = normalizeScore(metrics.getRequestRatePerSecond(), 0, 200);
+            double responseTimeScore = normalizeScore(metrics.getAverageResponseTime(), 100, 5000);
+
+            // Weight the scores (higher weight for CPU and memory)
+            return (cpuScore * 0.35 + memoryScore * 0.35 + requestRateScore * 0.15 + responseTimeScore * 0.15);
+        }
+
+        private double normalizeScore(double value, double min, double max) {
+            return (value - min) / (max - min);
+        }
+
+        private double calculateConfidence(AutoScalingMetrics metrics, boolean scaleUp) {
+            // Calculate confidence based on consistency of metrics
+            // In a real implementation, this would use historical data
+            return Math.max(0.5, Math.min(1.0, 0.7 + (Math.random() - 0.5) * 0.3));
+        }
+    }
+
+    // Scheduled auto-scaling evaluation
+    @Scheduled(fixedDelayString = "${app.auto-scaling.evaluation.interval:30000}")
+    public void evaluateAutoScaling() {
+        if (!Boolean.parseBoolean(System.getProperty("autoScaling.enabled", "true"))) {
+            return;
+        }
+
+        try {
+            AutoScalingManager manager = autoScalingManager();
+            ScalingDecision decision = manager.evaluateScalingNeeds();
+
+            if (!"NONE".equals(decision.getAction())) {
+                log.info("Auto-scaling decision: {}", decision);
+                manager.executeScalingDecision(decision);
+            }
+
+        } catch (Exception e) {
+            log.error("Error during auto-scaling evaluation", e);
+        }
+    }
+
+    // Data classes
+    public static class AutoScalingMetrics {
+        private double cpuUsage;
+        private double memoryUsage;
+        private int requestRatePerSecond;
+        private long averageResponseTime;
+        private LocalDateTime timestamp;
+
+        // Getters and setters
+        public double getCpuUsage() { return cpuUsage; }
+        public void setCpuUsage(double cpuUsage) { this.cpuUsage = cpuUsage; }
+
+        public double getMemoryUsage() { return memoryUsage; }
+        public void setMemoryUsage(double memoryUsage) { this.memoryUsage = memoryUsage; }
+
+        public int getRequestRatePerSecond() { return requestRatePerSecond; }
+        public void setRequestRatePerSecond(int requestRatePerSecond) { this.requestRatePerSecond = requestRatePerSecond; }
+
+        public long getAverageResponseTime() { return averageResponseTime; }
+        public void setAverageResponseTime(long averageResponseTime) { this.averageResponseTime = averageResponseTime; }
+
+        public LocalDateTime getTimestamp() { return timestamp; }
+        public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+
+        @Override
+        public String toString() {
+            return String.format("AutoScalingMetrics{cpu=%.1f%%, memory=%.1f%%, reqRate=%d/s, respTime=%dms, time=%s}",
+                    cpuUsage, memoryUsage, requestRatePerSecond, averageResponseTime, timestamp);
+        }
+    }
+
+    public static class ScalingDecision {
+        private String action;
+        private String reason;
+        private int targetInstances;
+        private double confidence;
+        private LocalDateTime timestamp = LocalDateTime.now();
+
+        // Getters and setters
+        public String getAction() { return action; }
+        public void setAction(String action) { this.action = action; }
+
+        public String getReason() { return reason; }
+        public void setReason(String reason) { this.reason = reason; }
+
+        public int getTargetInstances() { return targetInstances; }
+        public void setTargetInstances(int targetInstances) { this.targetInstances = targetInstances; }
+
+        public double getConfidence() { return confidence; }
+        public void setConfidence(double confidence) { this.confidence = confidence; }
+
+        public LocalDateTime getTimestamp() { return timestamp; }
+        public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+
+        @Override
+        public String toString() {
+            return String.format("ScalingDecision{action=%s, reason='%s', target=%d, confidence=%.1f%%, time=%s}",
+                    action, reason, targetInstances, confidence * 100, timestamp);
+        }
+    }
+
+    public static class ScalingContext {
+        private int currentInstances;
+        private int minInstances;
+        private int maxInstances;
+        private LocalDateTime lastScaleTime;
+
+        // Getters and setters
+        public int getCurrentInstances() { return currentInstances; }
+        public void setCurrentInstances(int currentInstances) { this.currentInstances = currentInstances; }
+
+        public int getMinInstances() { return minInstances; }
+        public void setMinInstances(int minInstances) { this.minInstances = minInstances; }
+
+        public int getMaxInstances() { return maxInstances; }
+        public void setMaxInstances(int maxInstances) { this.maxInstances = maxInstances; }
+
+        public LocalDateTime getLastScaleTime() { return lastScaleTime; }
+        public void setLastScaleTime(LocalDateTime lastScaleTime) { this.lastScaleTime = lastScaleTime; }
+    }
+
+    public static class AutoScalingStatus {
+        private int currentInstances;
+        private int minInstances;
+        private int maxInstances;
+        private String lastScaleAction;
+        private boolean cooldownActive;
+        private LocalDateTime timestamp = LocalDateTime.now();
+
+        // Getters and setters
+        public int getCurrentInstances() { return currentInstances; }
+        public void setCurrentInstances(int currentInstances) { this.currentInstances = currentInstances; }
+
+        public int getMinInstances() { return minInstances; }
+        public void setMinInstances(int minInstances) { this.minInstances = minInstances; }
+
+        public int getMaxInstances() { return maxInstances; }
+        public void setMaxInstances(int maxInstances) { this.maxInstances = maxInstances; }
+
+        public String getLastScaleAction() { return lastScaleAction; }
+        public void setLastScaleAction(String lastScaleAction) { this.lastScaleAction = lastScaleAction; }
+
+        public boolean isCooldownActive() { return cooldownActive; }
+        public void setCooldownActive(boolean cooldownActive) { this.cooldownActive = cooldownActive; }
+
+        public LocalDateTime getTimestamp() { return timestamp; }
+        public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+
+        @Override
+        public String toString() {
+            return String.format("AutoScalingStatus{current=%d, min=%d, max=%d, lastScale='%s', cooldown=%s, time=%s}",
+                    currentInstances, minInstances, maxInstances, lastScaleAction, cooldownActive, timestamp);
+        }
+    }
+
+    private static class MetricsCollector {
+        public AutoScalingMetrics collectMetrics() {
+            AutoScalingMetrics metrics = new AutoScalingMetrics();
+
+            // Simulate metrics collection
+            metrics.setCpuUsage(Math.random() * 100);
+            metrics.setMemoryUsage(Math.random() * 100);
+            metrics.setRequestRatePerSecond((int) (Math.random() * 200));
+            metrics.setAverageResponseTime((long) (Math.random() * 5000));
+            metrics.setTimestamp(LocalDateTime.now());
+
+            return metrics;
+        }
+    }
+}

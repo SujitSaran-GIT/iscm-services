@@ -1,0 +1,261 @@
+package com.gateway.controller;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.cloud.client.ServiceInstance;
+import org.springframework.cloud.client.discovery.DiscoveryClient;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Slf4j
+@RestController
+@RequestMapping("/actuator/load-balancing")
+@RequiredArgsConstructor
+public class LoadBalancingController implements HealthIndicator {
+
+    private final DiscoveryClient discoveryClient;
+    private final com.gateway.config.LoadBalancerConfig.LoadBalancerService loadBalancerService;
+
+    @Value("${app.load-balancing.strategy:round-robin}")
+    private String currentStrategy;
+
+    @Value("${app.load-balancing.health-check.enabled:true}")
+    private boolean healthCheckEnabled;
+
+    @Override
+    public Health health() {
+        try {
+            Map<String, Object> details = new HashMap<>();
+            details.put("strategy", currentStrategy);
+            details.put("healthCheckEnabled", healthCheckEnabled);
+            details.put("timestamp", LocalDateTime.now());
+
+            // Get available services
+            List<String> services = discoveryClient.getServices();
+            Map<String, Object> serviceDetails = new HashMap<>();
+
+            for (String service : services) {
+                List<ServiceInstance> instances = discoveryClient.getInstances(service);
+                Map<String, Object> instanceDetails = new HashMap<>();
+
+                instanceDetails.put("instanceCount", instances.size());
+                instanceDetails.put("instances", instances.stream()
+                        .map(this::getInstanceInfo)
+                        .collect(Collectors.toList()));
+
+                // Health check for each service
+                boolean allHealthy = instances.stream()
+                        .allMatch(this::isInstanceHealthy);
+
+                instanceDetails.put("allHealthy", allHealthy);
+
+                serviceDetails.put(service, instanceDetails);
+            }
+
+            details.put("services", serviceDetails);
+            details.put("totalServices", services.size());
+
+            // Determine overall health
+            boolean anyServiceUnhealthy = serviceDetails.values().stream()
+                    .anyMatch(map -> !(Boolean) map.get("allHealthy"));
+
+            Health.Builder healthBuilder = anyServiceUnhealthy ? Health.down() : Health.up();
+            return healthBuilder
+                    .withDetail("loadBalancer", details)
+                    .build();
+
+        } catch (Exception e) {
+            log.error("Load balancer health check failed", e);
+            return Health.down()
+                    .withDetail("error", e.getMessage())
+                    .build();
+        }
+    }
+
+    @GetMapping
+    public ResponseEntity<Map<String, Object>> getLoadBalancingStatus() {
+        Map<String, Object> status = new HashMap<>();
+
+        try {
+            // Get all services and their instances
+            List<String> services = discoveryClient.getServices();
+            Map<String, Object> servicesInfo = new HashMap<>();
+
+            for (String service : services) {
+                List<ServiceInstance> instances = discoveryClient.getInstances(service);
+                Map<String, Object> serviceInfo = new HashMap<>();
+
+                serviceInfo.put("instanceCount", instances.size());
+                serviceInfo.put("instances", instances.stream()
+                        .map(this::getInstanceInfo)
+                        .collect(Collectors.toList()));
+
+                serviceInfo.put("selectedInstance", instances.isEmpty() ? null :
+                        getInstanceInfo(loadBalancerService.chooseInstance(instances)));
+
+                servicesInfo.put(service, serviceInfo);
+            }
+
+            status.put("services", servicesInfo);
+            status.put("strategy", currentStrategy);
+            status.put("healthCheckEnabled", healthCheckEnabled);
+            status.put("timestamp", LocalDateTime.now());
+
+            return ResponseEntity.ok(status);
+
+        } catch (Exception e) {
+            log.error("Failed to get load balancing status", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Failed to retrieve load balancing status",
+                    "message", e.getMessage(),
+                    "timestamp", LocalDateTime.now()
+            ));
+        }
+    }
+
+    @GetMapping("/services/{serviceName}")
+    public ResponseEntity<Map<String, Object>> getServiceStatus(@PathVariable String serviceName) {
+        try {
+            List<ServiceInstance> instances = discoveryClient.getInstances(serviceName);
+
+            if (instances.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+
+            Map<String, Object> serviceInfo = new HashMap<>();
+            serviceInfo.put("serviceName", serviceName);
+            serviceInfo.put("instanceCount", instances.size());
+            serviceInfo.put("instances", instances.stream()
+                    .map(this::getInstanceInfo)
+                    .collect(Collectors.toList()));
+
+            // Load balancing information
+            ServiceInstance selectedInstance = loadBalancerService.chooseInstance(instances);
+            serviceInfo.put("selectedInstance", getInstanceInfo(selectedInstance));
+            serviceInfo.put("strategy", loadBalancerService.getStrategyName());
+
+            // Health information
+            boolean allHealthy = instances.stream()
+                    .allMatch(this::isInstanceHealthy);
+            serviceInfo.put("allInstancesHealthy", allHealthy);
+
+            return ResponseEntity.ok(serviceInfo);
+
+        } catch (Exception e) {
+            log.error("Failed to get service status for: {}", serviceName, e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Failed to retrieve service status",
+                    "serviceName", serviceName,
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/strategy")
+    public ResponseEntity<Map<String, String>> getLoadBalancingStrategy() {
+        return ResponseEntity.ok(Map.of(
+                "currentStrategy", currentStrategy,
+                "description", getStrategyDescription(currentStrategy),
+                "timestamp", LocalDateTime.now().toString()
+        ));
+    }
+
+    @GetMapping("/metrics")
+    public ResponseEntity<Map<String, Object>> getLoadBalancingMetrics() {
+        Map<String, Object> metrics = new HashMap<>();
+
+        try {
+            List<String> services = discoveryClient.getServices();
+            int totalInstances = 0;
+            int healthyInstances = 0;
+
+            Map<String, Integer> instanceCounts = new HashMap<>();
+            Map<String, Integer> healthyCounts = new HashMap<>();
+
+            for (String service : services) {
+                List<ServiceInstance> instances = discoveryClient.getInstances(service);
+                totalInstances += instances.size();
+
+                long healthyCount = instances.stream()
+                        .filter(this::isInstanceHealthy)
+                        .count();
+
+                instanceCounts.put(service, instances.size());
+                healthyCounts.put(service, (int) healthyCount);
+                healthyInstances += healthyCount;
+            }
+
+            metrics.put("totalServices", services.size());
+            metrics.put("totalInstances", totalInstances);
+            metrics.put("healthyInstances", healthyInstances);
+            metrics.put("unhealthyInstances", totalInstances - healthyInstances);
+            metrics.put("healthPercentage", totalInstances > 0 ?
+                    (double) healthyInstances / totalInstances * 100 : 0);
+            metrics.put("instanceCounts", instanceCounts);
+            metrics.put("healthyCounts", healthyCounts);
+            metrics.put("strategy", currentStrategy);
+            metrics.put("timestamp", LocalDateTime.now());
+
+            return ResponseEntity.ok(metrics);
+
+        } catch (Exception e) {
+            log.error("Failed to get load balancing metrics", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "error", "Failed to retrieve load balancing metrics",
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    private Map<String, Object> getInstanceInfo(ServiceInstance instance) {
+        if (instance == null) {
+            return null;
+        }
+
+        Map<String, Object> info = new HashMap<>();
+        info.put("instanceId", instance.getInstanceId());
+        info.put("host", instance.getHost());
+        info.put("port", instance.getPort());
+        info.put("scheme", instance.getScheme());
+        info.put("uri", instance.getUri().toString());
+        info.put("metadata", instance.getMetadata());
+        info.put("secure", instance.isSecure());
+
+        // Health status
+        info.put("healthy", isInstanceHealthy(instance));
+
+        return info;
+    }
+
+    private boolean isInstanceHealthy(ServiceInstance instance) {
+        // Simple health check based on instance metadata
+        Map<String, String> metadata = instance.getMetadata();
+        if (metadata != null) {
+            String status = metadata.get("status");
+            String health = metadata.get("health");
+
+            return !"DOWN".equals(status) && !"UNHEALTHY".equals(health);
+        }
+        return true; // Assume healthy if no status metadata
+    }
+
+    private String getStrategyDescription(String strategy) {
+        return switch (strategy.toLowerCase()) {
+            case "round-robin" -> "Requests are distributed evenly across all healthy instances in a circular manner";
+            case "weighted" -> "Requests are distributed based on configured weights for each instance";
+            case "least-connections" -> "Requests are sent to the instance with the fewest active connections";
+            case "random" -> "Requests are sent to a randomly selected instance";
+            default -> "Unknown load balancing strategy";
+        };
+    }
+}

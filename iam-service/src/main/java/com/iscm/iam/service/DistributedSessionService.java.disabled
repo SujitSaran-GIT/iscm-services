@@ -1,0 +1,355 @@
+package com.iscm.iam.service;
+
+import com.iscm.iam.config.ScalingConfig;
+import com.iscm.iam.model.User;
+import com.iscm.iam.model.UserSession;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.scaling.enabled", havingValue = "true", matchIfMissing = true)
+public class DistributedSessionService {
+
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final ScalingConfig.RedisDistributedCacheManager cacheManager;
+    private final UserService userService;
+
+    @Value("${app.scaling.session.prefix:session:}")
+    private String sessionPrefix;
+
+    @Value("${app.scaling.session.timeout:3600}")
+    private int sessionTimeoutSeconds;
+
+    @Value("${app.scaling.session.cleanup-interval:300}")
+    private int cleanupIntervalSeconds;
+
+    private static final String USER_SESSIONS_KEY = "user:sessions:";
+    private static final String ACTIVE_USERS_KEY = "active:users";
+
+    public void createDistributedSession(String sessionId, UUID userId, String ipAddress, String userAgent) {
+        try {
+            String sessionKey = sessionPrefix + sessionId;
+
+            SessionData sessionData = SessionData.builder()
+                    .sessionId(sessionId)
+                    .userId(userId)
+                    .ipAddress(ipAddress)
+                    .userAgent(userAgent)
+                    .createdAt(LocalDateTime.now())
+                    .lastAccessedAt(LocalDateTime.now())
+                    .build();
+
+            // Store session data
+            cacheManager.put(sessionKey, sessionData, Duration.ofSeconds(sessionTimeoutSeconds));
+
+            // Add to user sessions list
+            String userSessionsKey = USER_SESSIONS_KEY + userId;
+            redisTemplate.opsForSet().add(userSessionsKey, sessionId);
+            redisTemplate.expire(userSessionsKey, Duration.ofSeconds(sessionTimeoutSeconds));
+
+            // Add to active users set
+            redisTemplate.opsForSet().add(ACTIVE_USERS_KEY, userId.toString());
+
+            // Update user session cache
+            updateUserSessionCache(userId, sessionData);
+
+            log.debug("Created distributed session: {} for user: {}", sessionId, userId);
+
+        } catch (Exception e) {
+            log.error("Failed to create distributed session: {} for user: {}", sessionId, userId, e);
+        }
+    }
+
+    public Optional<SessionData> getSession(String sessionId) {
+        try {
+            String sessionKey = sessionPrefix + sessionId;
+            SessionData sessionData = (SessionData) cacheManager.get(sessionKey);
+
+            if (sessionData != null) {
+                // Update last accessed time
+                sessionData.setLastAccessedAt(LocalDateTime.now());
+                cacheManager.put(sessionKey, sessionData, Duration.ofSeconds(sessionTimeoutSeconds));
+
+                log.debug("Retrieved distributed session: {}", sessionId);
+                return Optional.of(sessionData);
+            }
+
+            return Optional.empty();
+
+        } catch (Exception e) {
+            log.error("Failed to get distributed session: {}", sessionId, e);
+            return Optional.empty();
+        }
+    }
+
+    public void updateSession(String sessionId, SessionData sessionData) {
+        try {
+            String sessionKey = sessionPrefix + sessionId;
+            sessionData.setLastAccessedAt(LocalDateTime.now());
+            cacheManager.put(sessionKey, sessionData, Duration.ofSeconds(sessionTimeoutSeconds));
+
+            // Update user session cache
+            updateUserSessionCache(sessionData.getUserId(), sessionData);
+
+            log.debug("Updated distributed session: {}", sessionId);
+
+        } catch (Exception e) {
+            log.error("Failed to update distributed session: {}", sessionId, e);
+        }
+    }
+
+    public void removeSession(String sessionId) {
+        try {
+            String sessionKey = sessionPrefix + sessionId;
+            SessionData sessionData = (SessionData) cacheManager.get(sessionKey);
+
+            if (sessionData != null) {
+                // Remove from user sessions list
+                String userSessionsKey = USER_SESSIONS_KEY + sessionData.getUserId();
+                redisTemplate.opsForSet().remove(userSessionsKey, sessionId);
+
+                // Update user session cache
+                updateUserSessionCache(sessionData.getUserId(), null);
+
+                log.debug("Removed distributed session: {} for user: {}", sessionId, sessionData.getUserId());
+            }
+
+            // Remove session data
+            cacheManager.evict(sessionKey);
+
+        } catch (Exception e) {
+            log.error("Failed to remove distributed session: {}", sessionId, e);
+        }
+    }
+
+    public void removeUserSessions(UUID userId) {
+        try {
+            String userSessionsKey = USER_SESSIONS_KEY + userId;
+            Set<Object> sessionIds = redisTemplate.opsForSet().members(userSessionsKey);
+
+            if (sessionIds != null && !sessionIds.isEmpty()) {
+                for (Object sessionId : sessionIds) {
+                    String sessionKey = sessionPrefix + sessionId.toString();
+                    cacheManager.evict(sessionKey);
+                }
+            }
+
+            // Remove user sessions set
+            redisTemplate.delete(userSessionsKey);
+
+            // Remove from active users
+            redisTemplate.opsForSet().remove(ACTIVE_USERS_KEY, userId.toString());
+
+            // Clear user session cache
+            String userCacheKey = USER_SESSIONS_KEY + userId + ":cache";
+            redisTemplate.delete(userCacheKey);
+
+            log.info("Removed all distributed sessions for user: {}", userId);
+
+        } catch (Exception e) {
+            log.error("Failed to remove distributed sessions for user: {}", userId, e);
+        }
+    }
+
+    public Set<String> getUserSessions(UUID userId) {
+        try {
+            String userSessionsKey = USER_SESSIONS_KEY + userId;
+            Set<Object> sessionIds = redisTemplate.opsForSet().members(userSessionsKey);
+
+            if (sessionIds != null) {
+                return sessionIds.stream()
+                        .map(Object::toString)
+                        .collect(java.util.stream.Collectors.toSet());
+            }
+
+            return Collections.emptySet();
+
+        } catch (Exception e) {
+            log.error("Failed to get user sessions for user: {}", userId, e);
+            return Collections.emptySet();
+        }
+    }
+
+    public int getActiveSessionCount() {
+        try {
+            Set<Object> activeUsers = redisTemplate.opsForSet().members(ACTIVE_USERS_KEY);
+            int totalSessions = 0;
+
+            if (activeUsers != null) {
+                for (Object userId : activeUsers) {
+                    String userSessionsKey = USER_SESSIONS_KEY + userId.toString();
+                    Long sessionCount = redisTemplate.opsForSet().size(userSessionsKey);
+                    if (sessionCount != null) {
+                        totalSessions += sessionCount.intValue();
+                    }
+                }
+            }
+
+            return totalSessions;
+
+        } catch (Exception e) {
+            log.error("Failed to get active session count", e);
+            return 0;
+        }
+    }
+
+    public Map<UUID, Set<SessionData>> getAllActiveSessions() {
+        Map<UUID, Set<SessionData>> activeSessions = new HashMap<>();
+
+        try {
+            Set<Object> activeUsers = redisTemplate.opsForSet().members(ACTIVE_USERS_KEY);
+
+            if (activeUsers != null) {
+                for (Object userIdObj : activeUsers) {
+                    UUID userId = UUID.fromString(userIdObj.toString());
+                    Set<String> sessionIds = getUserSessions(userId);
+                    Set<SessionData> userSessions = new HashSet<>();
+
+                    for (String sessionId : sessionIds) {
+                        getSession(sessionId).ifPresent(userSessions::add);
+                    }
+
+                    if (!userSessions.isEmpty()) {
+                        activeSessions.put(userId, userSessions);
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to get all active sessions", e);
+        }
+
+        return activeSessions;
+    }
+
+    // ========== Scheduled Cleanup ==========
+
+    @Scheduled(fixedRate = 60000) // Every minute
+    public void cleanupExpiredSessions() {
+        try {
+            log.debug("Starting distributed session cleanup");
+
+            int cleanedCount = 0;
+            Set<Object> activeUsers = redisTemplate.opsForSet().members(ACTIVE_USERS_KEY);
+
+            if (activeUsers != null) {
+                for (Object userIdObj : activeUsers) {
+                    UUID userId = UUID.fromString(userIdObj.toString());
+                    String userSessionsKey = USER_SESSIONS_KEY + userId.toString();
+                    Set<Object> sessionIds = redisTemplate.opsForSet().members(userSessionsKey);
+
+                    if (sessionIds != null) {
+                        for (Object sessionIdObj : sessionIds) {
+                            String sessionId = sessionIdObj.toString();
+                            String sessionKey = sessionPrefix + sessionId;
+
+                            SessionData sessionData = (SessionData) cacheManager.get(sessionKey);
+                            if (sessionData == null || isSessionExpired(sessionData)) {
+                                // Remove expired session
+                                redisTemplate.opsForSet().remove(userSessionsKey, sessionId);
+                                cacheManager.evict(sessionKey);
+                                cleanedCount++;
+                            }
+                        }
+
+                        // If user has no more sessions, remove from active users
+                        if (redisTemplate.opsForSet().size(userSessionsKey) == 0) {
+                            redisTemplate.opsForSet().remove(ACTIVE_USERS_KEY, userId.toString());
+                            redisTemplate.delete(userSessionsKey);
+                        }
+                    }
+                }
+            }
+
+            if (cleanedCount > 0) {
+                log.info("Cleaned up {} expired distributed sessions", cleanedCount);
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to cleanup expired distributed sessions", e);
+        }
+    }
+
+    @Scheduled(cron = "0 0 2 * * ?") // Daily at 2 AM
+    public void cleanupStaleData() {
+        try {
+            log.info("Starting stale data cleanup for distributed sessions");
+
+            // Clean up any orphaned session data
+            String pattern = sessionPrefix + "*";
+            Set<String> keys = redisTemplate.keys(pattern);
+
+            if (keys != null && !keys.isEmpty()) {
+                int cleanedCount = 0;
+                for (String key : keys) {
+                    SessionData sessionData = (SessionData) cacheManager.get(key);
+                    if (sessionData == null || isSessionExpired(sessionData)) {
+                        cacheManager.evict(key);
+                        cleanedCount++;
+                    }
+                }
+
+                log.info("Cleaned up {} stale distributed session entries", cleanedCount);
+            }
+
+        } catch (Exception e) {
+            log.error("Failed to cleanup stale distributed session data", e);
+        }
+    }
+
+    // ========== Helper Methods ==========
+
+    private void updateUserSessionCache(UUID userId, SessionData sessionData) {
+        try {
+            String cacheKey = USER_SESSIONS_KEY + userId + ":cache";
+
+            if (sessionData != null) {
+                // Update cache
+                Map<String, SessionData> cache = (Map<String, SessionData>) redisTemplate.opsForValue().get(cacheKey);
+                if (cache == null) {
+                    cache = new HashMap<>();
+                }
+                cache.put(sessionData.getSessionId(), sessionData);
+                redisTemplate.opsForValue().set(cacheKey, cache, Duration.ofMinutes(30));
+            } else {
+                // Clear cache if session is null
+                redisTemplate.delete(cacheKey);
+            }
+
+        } catch (Exception e) {
+            log.debug("Failed to update user session cache for user: {}", userId, e);
+        }
+    }
+
+    private boolean isSessionExpired(SessionData sessionData) {
+        return sessionData.getCreatedAt().plusSeconds(sessionTimeoutSeconds).isBefore(LocalDateTime.now());
+    }
+
+    // ========== DTO ==========
+
+    @lombok.Data
+    @lombok.Builder
+    @lombok.AllArgsConstructor
+    @lombok.NoArgsConstructor
+    public static class SessionData {
+        private String sessionId;
+        private UUID userId;
+        private String ipAddress;
+        private String userAgent;
+        private LocalDateTime createdAt;
+        private LocalDateTime lastAccessedAt;
+        private Map<String, Object> attributes = new HashMap<>();
+    }
+}

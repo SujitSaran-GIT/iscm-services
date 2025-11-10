@@ -6,8 +6,8 @@ services:
     container_name: iscm-postgres-dev
     environment:
       POSTGRES_DB: iscm_iam
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dev_password_change_in_production}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8"
     ports:
       - "5432:5432"
@@ -46,15 +46,19 @@ services:
 
   iam-service:
     build:
-      context: .
+      context: ./iam-service
       dockerfile: Dockerfile
     container_name: iscm-iam-service-dev
     environment:
       SPRING_PROFILES_ACTIVE: docker,dev
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/iscm_iam
-      SPRING_REDIS_HOST: redis
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-dev_password_change_in_production}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       SPRING_JPA_HIBERNATE_DDL_AUTO: validate
-      APP_JWT_SECRET: "your-super-secure-jwt-secret-key-for-docker-123!"
+      JWT_SECRET: ${JWT_SECRET:-devSecretKeyForDevelopmentOnly32Characters!}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-devRefreshSecretKeyForDevelopmentOnly32Chars!}
       LOGGING_LEVEL_COM_ISCM: DEBUG
     ports:
       - "8081:8081"

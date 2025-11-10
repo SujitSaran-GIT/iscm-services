@@ -1,0 +1,104 @@
+package com.iscm.iam.interceptor;
+
+import com.iscm.iam.config.RoutingDataSource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.HandlerInterceptor;
+
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.util.Set;
+import java.util.regex.Pattern;
+
+@Slf4j
+@Component
+@ConditionalOnProperty(name = "app.database.read-replica.enabled", havingValue = "true", matchIfMissing = false)
+public class ReadReplicaInterceptor implements HandlerInterceptor {
+
+    // Read-only HTTP methods
+    private static final Set<String> READ_METHODS = Set.of("GET", "HEAD", "OPTIONS");
+
+    // Read-only endpoints patterns
+    private static final Pattern READ_ONLY_ENDPOINTS = Pattern.compile(
+        "^/(api/v1/users/|api/v1/statistics/|actuator/health|actuator/metrics|actuator/info)"
+    );
+
+    // Write operations patterns (should always go to primary)
+    private static final Pattern WRITE_ENDPOINTS = Pattern.compile(
+        "^/(api/v1/auth/|api/v1/users/|api/v1/admin/|api/v1/organizations/|api/v1/mfa/|api/v1/password/)"
+    );
+
+    // Specific read-only operations
+    private static final Set<String> READ_OPERATIONS = Set.of(
+        "findById", "findByEmail", "existsByEmail", "count", "findAll", "search",
+        "getUserStatistics", "getLoginStatistics", "isActive", "isEnabled"
+    );
+
+    @Override
+    public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+        String method = request.getMethod();
+        String path = request.getRequestURI();
+        String query = request.getQueryString();
+
+        try {
+            if (shouldRouteToRead(method, path, query)) {
+                RoutingDataSource.setRead();
+            } else {
+                RoutingDataSource.setWrite();
+            }
+        } catch (Exception e) {
+            log.error("Failed to determine routing for request: {} {}", method, path, e);
+            // Default to write operation for safety
+            RoutingDataSource.setWrite();
+        }
+
+        return true;
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response,
+                              Object handler, Exception ex) {
+        // Clear the routing context after the request is complete
+        RoutingDataSource.clear();
+    }
+
+    private boolean shouldRouteToRead(String method, String path, String query) {
+        // Check HTTP method
+        if (!READ_METHODS.contains(method)) {
+            return false;
+        }
+
+        // Check if it's a write endpoint
+        if (WRITE_ENDPOINTS.matcher(path).find()) {
+            return false;
+        }
+
+        // Check if it's a read-only endpoint
+        if (READ_ONLY_ENDPOINTS.matcher(path).find()) {
+            return true;
+        }
+
+        // Check for read operations in query parameters
+        if (query != null && query.contains("operation=")) {
+            String operation = extractOperationFromQuery(query);
+            if (READ_OPERATIONS.contains(operation)) {
+                return true;
+            }
+        }
+
+        // Default to read for GET requests unless it matches a write pattern
+        return true;
+    }
+
+    private String extractOperationFromQuery(String query) {
+        // Extract operation parameter from query string
+        String[] params = query.split("&");
+        for (String param : params) {
+            if (param.startsWith("operation=")) {
+                return param.substring("operation=".length());
+            }
+        }
+        return null;
+    }
+}

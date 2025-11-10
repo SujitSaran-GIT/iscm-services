@@ -131,7 +131,10 @@ databaseChangeLog:
               - column: {name: role_id, type: UUID, constraints: {nullable: false}}
               - column: {name: assigned_at, type: TIMESTAMP, constraints: {nullable: false}}
               - column: {name: assigned_by, type: UUID, constraints: {nullable: true}}
-              - column: {name: tenant_id, type: UUID, constraints: {nullable: true}}
+              - column: {name: created_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: updated_at, type: TIMESTAMP, constraints: {nullable: false}}
+              - column: {name: version, type: INT, constraints: {nullable: false}, defaultValue: "0"}
+              - column: {name: tenant_id, type: UUID, constraints: {nullable: false}}
             constraints:
               - uniqueConstraint: {columnNames: user_id, role_id, constraintName: uk_user_role}
         - addForeignKeyConstraint:

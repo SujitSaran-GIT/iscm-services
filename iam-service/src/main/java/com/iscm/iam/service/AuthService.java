@@ -12,8 +12,13 @@ import com.iscm.iam.repository.OrganizationRepository;
 import com.iscm.iam.repository.RoleRepository;
 import com.iscm.iam.repository.UserRepository;
 import com.iscm.iam.security.JwtUtil;
+import com.iscm.iam.security.JwtBlacklistService;
+import com.iscm.iam.security.SecurityMonitoringService;
+import com.iscm.iam.cache.CacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.LockedException;
@@ -41,11 +46,18 @@ public class AuthService {
     private final PasswordService passwordService;
     private final AuthenticationManager authenticationManager;
     private final JwtUtil jwtUtil;
+    private final JwtBlacklistService jwtBlacklistService;
+    private final SecurityMonitoringService securityMonitoringService;
+    private final CacheService cacheService;
+    private final AsyncProcessingService asyncProcessingService;
 
     @Transactional
+    @Cacheable(value = "users", key = "#request.email")
     public AuthResponse login(AuthRequest request) {
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
+        // Try to get from cache first
+        User user = cacheService.getCachedUserByEmail(request.getEmail())
+                .orElseGet(() -> userRepository.findByEmail(request.getEmail())
+                        .orElseThrow(() -> new BadCredentialsException("Invalid credentials")));
 
         // Check if account is locked
         if (!user.isAccountNonLocked()) {
@@ -67,6 +79,21 @@ public class AuthService {
             user.setAccountLockedUntil(null);
             user.setLastLoginAt(LocalDateTime.now());
             userRepository.save(user);
+
+            // Cache the updated user
+            cacheService.cacheUser(user);
+
+            // Log successful login asynchronously
+            asyncProcessingService.processSecurityEventAsync(
+                SecurityMonitoringService.SecurityEventType.SUCCESSFUL_LOGIN,
+                "User logged in successfully",
+                request.getIpAddress(),
+                request.getUserAgent(),
+                user.getId()
+            );
+
+            // Send login notification asynchronously
+            asyncProcessingService.sendLoginNotificationAsync(user, request.getIpAddress(), request.getUserAgent());
 
             // Generate tokens
             List<String> roles = user.getUserRoles().stream()
@@ -90,6 +117,24 @@ public class AuthService {
                     .build();
 
         } catch (BadCredentialsException ex) {
+            // Log failed login attempt asynchronously
+            asyncProcessingService.processSecurityEventAsync(
+                SecurityMonitoringService.SecurityEventType.FAILED_LOGIN,
+                "Failed login attempt for user: " + request.getEmail(),
+                request.getIpAddress(),
+                request.getUserAgent(),
+                user != null ? user.getId() : null
+            );
+
+            // Check for brute force attack asynchronously
+            asyncProcessingService.processSecurityEventAsync(
+                SecurityMonitoringService.SecurityEventType.BRUTE_FORCE_DETECTED,
+                "Potential brute force attack from IP: " + request.getIpAddress(),
+                request.getIpAddress(),
+                request.getUserAgent(),
+                user != null ? user.getId() : null
+            );
+
             // Increment failed attempts
             handleFailedLogin(user);
             throw new BadCredentialsException("Invalid credentials");
@@ -145,6 +190,9 @@ public class AuthService {
 
         sessionService.createSession(savedUser, refreshToken, null, null);
 
+        // Process post-registration tasks asynchronously
+        asyncProcessingService.processUserRegistrationAsync(savedUser, null); // IP address not available in registration request
+
         return AuthResponse.builder()
                 .accessToken(accessToken)
                 .refreshToken(refreshToken)
@@ -180,13 +228,53 @@ public class AuthService {
     }
 
     @Transactional
+    @CacheEvict(value = {"users", "activeSessions"}, key = "#result?.id")
     public void logout(String refreshToken) {
-        sessionService.revokeSession(refreshToken);
+        try {
+            // Get session details for logging
+            UserSession session = sessionService.findSessionByRefreshToken(refreshToken);
+            if (session != null) {
+                User user = session.getUser();
+                log.info("User logout: userId={}, sessionId={}", user.getId(), session.getId());
+
+                // Clear user cache on logout
+                cacheService.clearUserCache(user.getId());
+
+                // Blacklist the refresh token
+                jwtBlacklistService.blacklistToken(refreshToken, "User logout");
+
+                // Blacklist associated access token if available
+                // Note: In a real implementation, you might track the access token ID as well
+                log.debug("Blacklisted refresh token during logout for user: {}", user.getId());
+            } else {
+                log.warn("Logout attempt with invalid refresh token");
+            }
+
+            // Revoke the session
+            sessionService.revokeSession(refreshToken);
+
+        } catch (Exception e) {
+            log.error("Error during logout", e);
+            // Still revoke session even if blacklisting fails
+            sessionService.revokeSession(refreshToken);
+        }
     }
 
     @Transactional
     public void logoutAllSessions(UUID userId) {
-        sessionService.revokeAllUserSessions(userId);
+        try {
+            // Blacklist all tokens for the user
+            jwtBlacklistService.blacklistAllUserTokens(userId, "User logout all sessions");
+            log.info("All tokens blacklisted for user during logout: userId={}", userId);
+
+            // Revoke all user sessions
+            sessionService.revokeAllUserSessions(userId);
+
+        } catch (Exception e) {
+            log.error("Error during logout all sessions for user: {}", userId, e);
+            // Still revoke sessions even if blacklisting fails
+            sessionService.revokeAllUserSessions(userId);
+        }
     }
 
     private void handleFailedLogin(User user) {
@@ -196,8 +284,18 @@ public class AuthService {
         // Lock account after 5 failed attempts for 30 minutes
         if (newAttempts >= 5) {
             user.setAccountLockedUntil(LocalDateTime.now().plusMinutes(30));
-            log.warn("Account locked for user: {} due to {} failed attempts", 
+            log.warn("Account locked for user: {} due to {} failed attempts",
                     user.getEmail(), newAttempts);
+
+            // Log account lockout event
+            securityMonitoringService.recordSecurityEventWithUser(
+                SecurityMonitoringService.SecurityEventType.ACCOUNT_LOCKED,
+                String.format("Account locked for user %s due to %d failed login attempts",
+                    user.getEmail(), newAttempts),
+                null, // IP address not available here
+                null,
+                user
+            );
         }
 
         userRepository.save(user);

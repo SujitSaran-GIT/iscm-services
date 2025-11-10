@@ -1,0 +1,305 @@
+package com.gateway.config;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.cloud.client.ServiceInstance;
+import org.springframework.cloud.client.loadbalancer.LoadBalanced;
+import org.springframework.cloud.loadbalancer.annotation.LoadBalancerClient;
+import org.springframework.cloud.loadbalancer.core.ServiceInstanceListSupplier;
+import org.springframework.cloud.loadbalancer.support.ServiceInstanceListSuppliers;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.reactive.function.client.WebClient;
+
+import java.util.List;
+import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
+
+@Slf4j
+@Configuration
+@ConditionalOnProperty(name = "app.load-balancing.enabled", havingValue = "true", matchIfMissing = true)
+public class LoadBalancerConfig {
+
+    @Value("${app.load-balancing.strategy:round-robin}")
+    private String loadBalancingStrategy;
+
+    @Value("${app.load-balancing.health-check.enabled:true}")
+    private boolean healthCheckEnabled;
+
+    @Value("${app.load-balancing.health-check.interval:30000}")
+    private int healthCheckInterval;
+
+    @Bean
+    @LoadBalanced
+    public WebClient.Builder loadBalancedWebClientBuilder() {
+        return WebClient.builder();
+    }
+
+    @Bean
+    public LoadBalancerService loadBalancerService() {
+        return switch (loadBalancingStrategy.toLowerCase()) {
+            case "round-robin" -> new RoundRobinLoadBalancer();
+            case "weighted" -> new WeightedLoadBalancer();
+            case "least-connections" -> new LeastConnectionsLoadBalancer();
+            case "random" -> new RandomLoadBalancer();
+            default -> new RoundRobinLoadBalancer();
+        };
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "app.load-balancing.health-check.enabled", havingValue = "true")
+    public LoadBalancerHealthMonitor loadBalancerHealthMonitor() {
+        return new LoadBalancerHealthMonitor(healthCheckInterval);
+    }
+
+    // IAM Service Load Balancing
+    @Bean
+    @LoadBalancerClient(name = "iam-service")
+    public ServiceInstanceListSupplier serviceInstanceListSupplier() {
+        return ServiceInstanceListSuppliers.from("iam-service");
+    }
+
+    // User Service Load Balancing
+    @Bean
+    @LoadBalancerClient(name = "user-service")
+    public ServiceInstanceListSupplier userServiceInstanceListSupplier() {
+        return ServiceInstanceListSuppliers.from("user-service");
+    }
+
+    // Load Balancer Strategy Interface
+    public interface LoadBalancerService {
+        ServiceInstance chooseInstance(List<ServiceInstance> instances);
+        String getStrategyName();
+    }
+
+    // Round Robin Load Balancer
+    public static class RoundRobinLoadBalancer implements LoadBalancerService {
+        private final AtomicInteger counter = new AtomicInteger(0);
+
+        @Override
+        public ServiceInstance chooseInstance(List<ServiceInstance> instances) {
+            if (instances == null || instances.isEmpty()) {
+                return null;
+            }
+
+            int index = Math.abs(counter.getAndIncrement() % instances.size());
+            ServiceInstance selected = instances.get(index);
+
+            log.debug("Round-robin selected instance {} for service {}",
+                    selected.getInstanceId(), getTargetServiceName(instances));
+
+            return selected;
+        }
+
+        @Override
+        public String getStrategyName() {
+            return "Round Robin";
+        }
+
+        private String getTargetServiceName(List<ServiceInstance> instances) {
+            return instances.isEmpty() ? "unknown" : instances.get(0).getServiceId();
+        }
+    }
+
+    // Weighted Load Balancer
+    public static class WeightedLoadBalancer implements LoadBalancerService {
+        private final Random random = new Random();
+
+        @Override
+        public ServiceInstance chooseInstance(List<ServiceInstance> instances) {
+            if (instances == null || instances.isEmpty()) {
+                return null;
+            }
+
+            // Calculate total weight
+            int totalWeight = instances.stream()
+                    .mapToInt(instance -> getInstanceWeight(instance))
+                    .sum();
+
+            if (totalWeight == 0) {
+                // If no weights specified, fall back to round-robin
+                return new RoundRobinLoadBalancer().chooseInstance(instances);
+            }
+
+            // Random weighted selection
+            int randomWeight = random.nextInt(totalWeight);
+            int currentWeight = 0;
+
+            for (ServiceInstance instance : instances) {
+                currentWeight += getInstanceWeight(instance);
+                if (currentWeight >= randomWeight) {
+                    log.debug("Weighted selected instance {} (weight: {}) for service {}",
+                            instance.getInstanceId(), getInstanceWeight(instance),
+                            getTargetServiceName(instances));
+                    return instance;
+                }
+            }
+
+            return instances.get(0); // Fallback
+        }
+
+        private int getInstanceWeight(ServiceInstance instance) {
+            Map<String, String> metadata = instance.getMetadata();
+            String weightStr = metadata != null ? metadata.get("weight") : "1";
+            try {
+                return Math.max(1, Integer.parseInt(weightStr));
+            } catch (NumberFormatException e) {
+                return 1;
+            }
+        }
+
+        @Override
+        public String getStrategyName() {
+            return "Weighted";
+        }
+
+        private String getTargetServiceName(List<ServiceInstance> instances) {
+            return instances.isEmpty() ? "unknown" : instances.get(0).getServiceId();
+        }
+    }
+
+    // Least Connections Load Balancer
+    public static class LeastConnectionsLoadBalancer implements LoadBalancerService {
+        @Override
+        public ServiceInstance chooseInstance(List<ServiceInstance> instances) {
+            if (instances == null || instances.isEmpty()) {
+                return null;
+            }
+
+            // In a real implementation, you would track actual connection counts
+            // For now, simulate with random weights
+            ServiceInstance bestInstance = instances.get(0);
+            int minConnections = random.nextInt(10); // Simulated connection count
+
+            for (ServiceInstance instance : instances) {
+                int connections = random.nextInt(10); // Simulated connection count
+                if (connections < minConnections) {
+                    minConnections = connections;
+                    bestInstance = instance;
+                }
+            }
+
+            log.debug("Least connections selected instance {} for service {}",
+                    bestInstance.getInstanceId(), getTargetServiceName(instances));
+
+            return bestInstance;
+        }
+
+        @Override
+        public String getStrategyName() {
+            return "Least Connections";
+        }
+
+        private String getTargetServiceName(List<ServiceInstance> instances) {
+            return instances.isEmpty() ? "unknown" : instances.get(0).getServiceId();
+        }
+    }
+
+    // Random Load Balancer
+    public static class RandomLoadBalancer implements LoadBalancerService {
+        private final Random random = new Random();
+
+        @Override
+        public ServiceInstance chooseInstance(List<ServiceInstance> instances) {
+            if (instances == null || instances.isEmpty()) {
+                return null;
+            }
+
+            int index = random.nextInt(instances.size());
+            ServiceInstance selected = instances.get(index);
+
+            log.debug("Random selected instance {} for service {}",
+                    selected.getInstanceId(), getTargetServiceName(instances));
+
+            return selected;
+        }
+
+        @Override
+        public String getStrategyName() {
+            return "Random";
+        }
+
+        private String getTargetServiceName(List<ServiceInstance> instances) {
+            return instances.isEmpty() ? "unknown" : instances.get(0).getServiceId();
+        }
+    }
+
+    // Health Monitor for Load Balanced Services
+    public static class LoadBalancerHealthMonitor {
+        private final int healthCheckInterval;
+        private final Map<String, Boolean> serviceHealth = new java.util.concurrent.ConcurrentHashMap<>();
+
+        public LoadBalancerHealthMonitor(int healthCheckInterval) {
+            this.healthCheckInterval = healthCheckInterval;
+            // Start health monitoring thread
+            startHealthMonitoring();
+        }
+
+        private void startHealthMonitoring() {
+            Thread healthMonitorThread = new Thread(() -> {
+                while (!Thread.currentThread().isInterrupted()) {
+                    try {
+                        performHealthChecks();
+                        Thread.sleep(healthCheckInterval);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            });
+            healthMonitorThread.setDaemon(true);
+            healthMonitorThread.start();
+        }
+
+        private void performHealthChecks() {
+            // In a real implementation, you would check the health of each service instance
+            // For now, just simulate health status
+            serviceHealth.forEach((service, health) -> {
+                boolean newHealth = Math.random() > 0.1; // 90% healthy
+                if (newHealth != health) {
+                    serviceHealth.put(service, newHealth);
+                    log.info("Service {} health status changed to {}", service, newHealth ? "UP" : "DOWN");
+                }
+            });
+        }
+
+        public boolean isServiceHealthy(String serviceName) {
+            return serviceHealth.getOrDefault(serviceName, true);
+        }
+
+        public void markServiceHealthy(String serviceName, boolean healthy) {
+            serviceHealth.put(serviceName, healthy);
+        }
+    }
+
+    // Circuit Breaker aware Load Balancer
+    @Bean
+    @ConditionalOnProperty(name = "app.load-balancing.circuit-breaker-aware.enabled", havingValue = "true")
+    public CircuitBreakerAwareLoadBalancer circuitBreakerAwareLoadBalancer() {
+        return new CircuitBreakerAwareLoadBalancer();
+    }
+
+    public static class CircuitBreakerAwareLoadBalancer {
+        public ServiceInstance chooseInstance(List<ServiceInstance> instances, String serviceName) {
+            // Filter out instances that are known to be unhealthy or have open circuit breakers
+            List<ServiceInstance> healthyInstances = instances.stream()
+                    .filter(instance -> !isInstanceUnhealthy(instance, serviceName))
+                    .toList();
+
+            if (healthyInstances.isEmpty()) {
+                log.warn("No healthy instances available for service: {}", serviceName);
+                return null;
+            }
+
+            // Use round-robin on healthy instances
+            return new RoundRobinLoadBalancer().chooseInstance(healthyInstances);
+        }
+
+        private boolean isInstanceUnhealthy(ServiceInstance instance, String serviceName) {
+            Map<String, String> metadata = instance.getMetadata();
+            String status = metadata != null ? metadata.get("status") : "UP";
+            return "DOWN".equals(status) || "UNHEALTHY".equals(status);
+        }
+    }
+}

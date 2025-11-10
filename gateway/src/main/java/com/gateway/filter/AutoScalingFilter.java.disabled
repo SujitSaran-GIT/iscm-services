@@ -1,0 +1,149 @@
+package com.gateway.filter;
+
+import com.gateway.config.AutoScalingConfig;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cloud.gateway.filter.GatewayFilterChain;
+import org.springframework.cloud.gateway.filter.GlobalFilter;
+import org.springframework.core.Ordered;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.stereotype.Component;
+import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.Mono;
+
+import java.time.LocalDateTime;
+
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class AutoScalingFilter implements GlobalFilter, Ordered {
+
+    private final AutoScalingConfig.AutoScalingMetricsCollector metricsCollector;
+    private final RequestTracker requestTracker = new RequestTracker();
+
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        long startTime = System.currentTimeMillis();
+        ServerHttpRequest request = exchange.getRequest();
+        String path = request.getPath().value();
+
+        log.debug("Auto-scaling filter processing request: {} {}", request.getMethod(), path);
+
+        // Record request start
+        String requestId = requestTracker.recordRequestStart(request);
+
+        // Continue with the filter chain
+        return chain.filter(exchange)
+                .doOnSuccess(response -> {
+                    long duration = System.currentTimeMillis() - startTime;
+                    requestTracker.recordRequestEnd(requestId, duration, true);
+
+                    // Record metrics for auto-scaling
+                    metricsCollector.recordRequest();
+                    metricsCollector.recordResponseTime(duration);
+
+                    log.debug("Request {} completed successfully in {}ms", requestId, duration);
+                })
+                .doOnError(error -> {
+                    long duration = System.currentTimeMillis() - startTime;
+                    requestTracker.recordRequestEnd(requestId, duration, false);
+
+                    // Still record metrics even for failed requests
+                    metricsCollector.recordRequest();
+                    metricsCollector.recordResponseTime(duration);
+
+                    log.debug("Request {} failed after {}ms: {}", requestId, duration, error.getMessage());
+                })
+                .doFinally(signalType -> {
+                    requestTracker.cleanupRequest(requestId);
+                });
+    }
+
+    @Override
+    public int getOrder() {
+        return 10; // Execute after load balancing but before other filters
+    }
+
+    private static class RequestTracker {
+        private final java.util.concurrent.ConcurrentHashMap<String, RequestInfo> activeRequests = new java.util.concurrent.ConcurrentHashMap<>();
+        private final java.util.concurrent.AtomicLong requestCounter = new java.util.concurrent.AtomicLong(0);
+
+        public String recordRequestStart(ServerHttpRequest request) {
+            String requestId = "REQ-" + requestCounter.incrementAndGet();
+            RequestInfo info = new RequestInfo();
+            info.setStartTime(System.currentTimeMillis());
+            info.setPath(request.getPath().value());
+            info.setMethod(request.getMethod().name());
+            info.setUserAgent(request.getHeaders().getFirst("User-Agent"));
+
+            activeRequests.put(requestId, info);
+
+            log.trace("Started tracking request: {} {}", requestId, info.getPath());
+            return requestId;
+        }
+
+        public void recordRequestEnd(String requestId, long duration, boolean success) {
+            RequestInfo info = activeRequests.get(requestId);
+            if (info != null) {
+                info.setDuration(duration);
+                info.setSuccess(success);
+                info.setEndTime(System.currentTimeMillis());
+
+                log.trace("Completed tracking request: {} duration={}ms success={}",
+                        requestId, duration, success);
+            }
+        }
+
+        public void cleanupRequest(String requestId) {
+            RequestInfo info = activeRequests.remove(requestId);
+            if (info != null) {
+                long duration = info.getDuration();
+                boolean success = info.isSuccess();
+
+                // Update global metrics
+                updateGlobalMetrics(info, duration, success);
+            }
+        }
+
+        private void updateGlobalMetrics(RequestInfo info, long duration, boolean success) {
+            // In a real implementation, this would update a metrics store
+            // For now, we'll just log the completion
+            if (!success || duration > 5000) {
+                log.warn("Request completed with issues: {} {} duration={}ms success={}",
+                        info.getMethod(), info.getPath(), duration, success);
+            }
+        }
+
+        private static class RequestInfo {
+            private long startTime;
+            private long endTime;
+            private long duration;
+            private String path;
+            private String method;
+            private String userAgent;
+            private boolean success = true;
+
+            // Getters and setters
+            public long getStartTime() { return startTime; }
+            public void setStartTime(long startTime) { this.startTime = startTime; }
+
+            public long getEndTime() { return endTime; }
+            public void setEndTime(long endTime) { this.endTime = endTime; }
+
+            public long getDuration() { return duration; }
+            public void setDuration(long duration) { this.duration = duration; }
+
+            public String getPath() { return path; }
+            public void setPath(String path) { this.path = path; }
+
+            public String getMethod() { return method; }
+            public void setMethod(String method) { this.method = method; }
+
+            public String getUserAgent() { return userAgent; }
+            public void setUserAgent(String userAgent) { this.userAgent = userAgent; }
+
+            public boolean isSuccess() { return success; }
+            public void setSuccess(boolean success) { this.success = success; }
+        }
+    }
+}

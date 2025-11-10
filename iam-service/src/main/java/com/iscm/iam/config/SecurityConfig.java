@@ -18,9 +18,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.XXssProtectionHeaderWriter;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.client.RestTemplate;
 
 import com.iscm.iam.security.CustomAccessDeniedHandler;
@@ -28,9 +25,6 @@ import com.iscm.iam.security.JwtAuthenticationEntryPoint;
 import com.iscm.iam.security.JwtAuthenticationFilter;
 import com.iscm.iam.security.UnlimitedLengthPasswordEncoder;
 import com.iscm.iam.service.UserService;
-
-import java.util.Arrays;
-import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -72,9 +66,6 @@ public class SecurityConfig {
         requestHandler.setCsrfRequestAttributeName("_csrf");
 
         http
-            // CORS configuration
-            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            
             // CSRF configuration for stateless API
             .csrf(csrf -> csrf
                 .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
@@ -109,8 +100,8 @@ public class SecurityConfig {
                     "/api/v1/auth/**",
                     "/swagger-ui/**",
                     "/v3/api-docs/**",
-                    "/actuator/health",
-                    "/actuator/info"
+                    "/actuator/**"
+                
                 ).permitAll()
                 
                 // Monitoring endpoints (admin only)
@@ -152,38 +143,6 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(List.of(
-            "http://localhost:[*]",
-            "https://*.iscm.com",
-            "https://iscm.com"
-        ));
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList(
-            "Authorization",
-            "Content-Type",
-            "X-Requested-With",
-            "Accept",
-            "X-XSRF-TOKEN",
-            "X-Rate-Limit-Limit",
-            "X-Rate-Limit-Remaining",
-            "X-Rate-Limit-Reset"
-        ));
-        configuration.setExposedHeaders(Arrays.asList(
-            "X-XSRF-TOKEN",
-            "X-Rate-Limit-Limit",
-            "X-Rate-Limit-Remaining",
-            "X-Rate-Limit-Reset"
-        ));
-        configuration.setAllowCredentials(true);
-        configuration.setMaxAge(3600L); // 1 hour
-        
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
-        return source;
-    }
 
     @Bean
     @ConditionalOnProperty(name = "app.security.require-ssl", havingValue = "true")

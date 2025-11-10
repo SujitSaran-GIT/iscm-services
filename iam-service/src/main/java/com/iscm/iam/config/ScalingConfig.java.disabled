@@ -1,0 +1,140 @@
+package com.iscm.iam.config;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.springframework.session.data.redis.config.annotation.web.http.EnableRedisHttpSession;
+import org.springframework.session.web.http.CookieSerializer;
+import org.springframework.session.web.http.DefaultCookieSerializer;
+
+import java.time.Duration;
+
+@Slf4j
+@Configuration
+@EnableRedisHttpSession
+@ConditionalOnProperty(name = "app.scaling.enabled", havingValue = "true", matchIfMissing = true)
+public class ScalingConfig {
+
+    @Value("${app.scaling.session.timeout:3600}")
+    private int sessionTimeoutSeconds;
+
+    @Value("${app.scaling.session.cookie-name:ISCSESSION}")
+    private String sessionCookieName;
+
+    @Value("${app.scaling.session.cookie-domain:}")
+    private String sessionCookieDomain;
+
+    @Value("${app.scaling.session.cookie-secure:true}")
+    private boolean sessionCookieSecure;
+
+    @Value("${app.scaling.session.cookie-same-site:Lax}")
+    private String sessionCookieSameSite;
+
+    @Value("${app.scaling.session.cookie-http-only:true}")
+    private boolean sessionCookieHttpOnly;
+
+    @Bean
+    public CookieSerializer cookieSerializer() {
+        DefaultCookieSerializer serializer = new DefaultCookieSerializer();
+        serializer.setCookieName(sessionCookieName);
+        serializer.setCookiePath("/");
+        serializer.setDomainNamePattern(sessionCookieDomain.isEmpty() ? null : sessionCookieDomain);
+        serializer.setUseHttpOnlyCookie(sessionCookieHttpOnly);
+        serializer.setSameSite(sessionCookieSameSite);
+        serializer.setUseSecureCookie(sessionCookieSecure);
+        return serializer;
+    }
+
+    @Bean
+    public RedisTemplate<String, Object> sessionRedisTemplate(RedisConnectionFactory connectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(connectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setHashKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.afterPropertiesSet();
+        return template;
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "app.scaling.distributed-cache.enabled", havingValue = "true")
+    public DistributedCacheManager distributedCacheManager(RedisTemplate<String, Object> redisTemplate) {
+        return new RedisDistributedCacheManager(redisTemplate);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "app.scaling.cluster-coordination.enabled", havingValue = "true")
+    public ClusterCoordinator clusterCoordinator() {
+        return new ClusterCoordinator();
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "app.scaling.health-check.enabled", havingValue = "true")
+    public HealthCheckService healthCheckService() {
+        return new HealthCheckService();
+    }
+
+    public static class RedisDistributedCacheManager {
+        private final RedisTemplate<String, Object> redisTemplate;
+
+        public RedisDistributedCacheManager(RedisTemplate<String, Object> redisTemplate) {
+            this.redisTemplate = redisTemplate;
+        }
+
+        public void put(String key, Object value, Duration ttl) {
+            redisTemplate.opsForValue().set(key, value, ttl);
+        }
+
+        public Object get(String key) {
+            return redisTemplate.opsForValue().get(key);
+        }
+
+        public void evict(String key) {
+            redisTemplate.delete(key);
+        }
+
+        public void clear(String pattern) {
+            redisTemplate.delete(redisTemplate.keys(pattern));
+        }
+    }
+
+    public static class ClusterCoordinator {
+        private final String nodeId = java.util.UUID.randomUUID().toString();
+
+        public String getNodeId() {
+            return nodeId;
+        }
+
+        public boolean isLeader() {
+            // Simplified leader election logic
+            // In practice, use Redis Redlock or similar distributed lock mechanism
+            return false;
+        }
+
+        public void scheduleTask(String taskType, Runnable task) {
+            // Simplified task scheduling for cluster
+            // In practice, use distributed task scheduling like Quartz with Redis
+        }
+    }
+
+    public static class HealthCheckService {
+        public boolean isHealthy() {
+            return true; // Simplified health check
+        }
+
+        public java.util.Map<String, Object> getHealthMetrics() {
+            return java.util.Map.of(
+                "status", "UP",
+                "timestamp", java.time.Instant.now(),
+                "nodeId", java.util.UUID.randomUUID().toString()
+            );
+        }
+    }
+}

@@ -1,0 +1,236 @@
+package com.iscm.iam.config;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.cloud.client.ServiceInstance;
+import org.springframework.cloud.client.discovery.DiscoveryClient;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+
+@Slf4j
+@Configuration
+@EnableScheduling
+@RequiredArgsConstructor
+@ConditionalOnProperty(name = "app.scaling.service-discovery.enabled", havingValue = "true", matchIfMissing = false)
+public class ServiceDiscoveryConfig {
+
+    private final DiscoveryClient discoveryClient;
+
+    @Value("${spring.application.name:iam-service}")
+    private String serviceName;
+
+    @Value("${app.scaling.instance-id:${HOSTNAME:localhost}:${server.port:8081}}")
+    private String instanceId;
+
+    @Value("${app.scaling.health-check.interval:30000}")
+    private int healthCheckInterval;
+
+    private final AtomicReference<Map<String, Object>> instanceMetadata = new AtomicReference<>();
+
+    @Bean
+    public ServiceRegistry serviceRegistry() {
+        return new ServiceRegistry();
+    }
+
+    @Bean
+    public LoadBalancer loadBalancer() {
+        return new RoundRobinLoadBalancer();
+    }
+
+    @Bean
+    public HealthIndicator serviceHealthIndicator() {
+        return new ServiceHealthIndicator();
+    }
+
+    @Scheduled(fixedRate = 30000) // Every 30 seconds
+    public void updateServiceMetadata() {
+        try {
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("instanceId", instanceId);
+            metadata.put("serviceName", serviceName);
+            metadata.put("lastHeartbeat", LocalDateTime.now().toString());
+            metadata.put("status", "UP");
+            metadata.put("version", "1.0.0");
+            metadata.put("environment", "production");
+
+            // Add system metadata
+            Runtime runtime = Runtime.getRuntime();
+            metadata.put("totalMemory", runtime.totalMemory());
+            metadata.put("freeMemory", runtime.freeMemory());
+            metadata.put("maxMemory", runtime.maxMemory());
+            metadata.put("availableProcessors", runtime.availableProcessors());
+
+            instanceMetadata.set(metadata);
+
+            log.debug("Updated service metadata: {}", instanceId);
+
+        } catch (Exception e) {
+            log.error("Failed to update service metadata", e);
+        }
+    }
+
+    public class ServiceRegistry {
+        public void registerInstance() {
+            log.info("Registering service instance: {} - {}", serviceName, instanceId);
+            updateServiceMetadata();
+        }
+
+        public void deregisterInstance() {
+            log.info("Deregistering service instance: {} - {}", serviceName, instanceId);
+        }
+
+        public Map<String, Object> getInstanceMetadata() {
+            return instanceMetadata.get();
+        }
+    }
+
+    public interface LoadBalancer {
+        ServiceInstance chooseInstance(String serviceName, List<ServiceInstance> instances);
+    }
+
+    public static class RoundRobinLoadBalancer implements LoadBalancer {
+        private final java.util.concurrent.atomic.AtomicInteger counter = new java.util.concurrent.atomic.AtomicInteger(0);
+
+        @Override
+        public ServiceInstance chooseInstance(String serviceName, List<ServiceInstance> instances) {
+            if (instances == null || instances.isEmpty()) {
+                return null;
+            }
+
+            int index = Math.abs(counter.getAndIncrement() % instances.size());
+            ServiceInstance selected = instances.get(index);
+
+            log.debug("Selected instance {} for service {} using round-robin (index: {})",
+                    selected.getInstanceId(), serviceName, index);
+
+            return selected;
+        }
+    }
+
+    public static class WeightedLoadBalancer implements LoadBalancer {
+        @Override
+        public ServiceInstance chooseInstance(String serviceName, List<ServiceInstance> instances) {
+            if (instances == null || instances.isEmpty()) {
+                return null;
+            }
+
+            // Simplified weighted selection based on instance metadata
+            // In practice, use actual weights from service registry
+            double totalWeight = instances.stream()
+                    .mapToDouble(this::getInstanceWeight)
+                    .sum();
+
+            double randomWeight = Math.random() * totalWeight;
+            double currentWeight = 0;
+
+            for (ServiceInstance instance : instances) {
+                currentWeight += getInstanceWeight(instance);
+                if (currentWeight >= randomWeight) {
+                    log.debug("Selected instance {} for service {} using weighted selection",
+                            instance.getInstanceId(), serviceName);
+                    return instance;
+                }
+            }
+
+            return instances.get(0); // Fallback
+        }
+
+        private double getInstanceWeight(ServiceInstance instance) {
+            Map<String, String> metadata = instance.getMetadata();
+            String weightStr = metadata != null ? metadata.get("weight") : "1.0";
+            try {
+                return Double.parseDouble(weightStr);
+            } catch (NumberFormatException e) {
+                return 1.0;
+            }
+        }
+    }
+
+    private static class ServiceHealthIndicator implements HealthIndicator {
+        @Override
+        public Health health() {
+            try {
+                // Check system resources
+                Runtime runtime = Runtime.getRuntime();
+                long maxMemory = runtime.maxMemory();
+                long totalMemory = runtime.totalMemory();
+                long freeMemory = runtime.freeMemory();
+                long usedMemory = totalMemory - freeMemory;
+
+                double memoryUsage = (double) usedMemory / maxMemory * 100;
+                boolean healthy = memoryUsage < 90; // Healthy if memory usage < 90%
+
+                Health.Builder builder = healthy ? Health.up() : Health.down();
+
+                return builder
+                        .withDetail("serviceName", "iam-service")
+                        .withDetail("instanceId", System.getProperty("instance.id", "unknown"))
+                        .withDetail("timestamp", LocalDateTime.now().toString())
+                        .withDetail("memory", Map.of(
+                                "max", maxMemory / 1024 / 1024,
+                                "total", totalMemory / 1024 / 1024,
+                                "used", usedMemory / 1024 / 1024,
+                                "free", freeMemory / 1024 / 1024,
+                                "usagePercentage", String.format("%.2f%%", memoryUsage)
+                        ))
+                        .withDetail("threads", Map.of(
+                                "availableProcessors", runtime.availableProcessors(),
+                                "activeThreads", java.lang.Thread.activeCount()
+                        ))
+                        .build();
+
+            } catch (Exception e) {
+                log.error("Health check failed", e);
+                return Health.down()
+                        .withDetail("error", e.getMessage())
+                        .withDetail("timestamp", LocalDateTime.now().toString())
+                        .build();
+            }
+        }
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "app.scaling.metrics.enabled", havingValue = "true")
+    public ScalingMetricsCollector scalingMetricsCollector() {
+        return new ScalingMetricsCollector();
+    }
+
+    public static class ScalingMetricsCollector {
+        private final Map<String, Long> requestCounts = new java.util.concurrent.ConcurrentHashMap<>();
+        private final Map<String, Long> responseTimes = new java.util.concurrent.ConcurrentHashMap<>();
+
+        public void recordRequest(String endpoint, long responseTime) {
+            requestCounts.merge(endpoint, 1L, Long::sum);
+            responseTimes.put(endpoint, responseTime);
+        }
+
+        public Map<String, Object> getMetrics() {
+            Map<String, Object> metrics = new HashMap<>();
+            metrics.put("requestCounts", requestCounts);
+            metrics.put("averageResponseTimes", calculateAverageResponseTimes());
+            metrics.put("totalRequests", requestCounts.values().stream().mapToLong(Long::longValue).sum());
+            return metrics;
+        }
+
+        private Map<String, Double> calculateAverageResponseTimes() {
+            Map<String, Double> averages = new HashMap<>();
+            // Simplified average calculation
+            responseTimes.forEach((endpoint, time) -> {
+                averages.put(endpoint, time.doubleValue());
+            });
+            return averages;
+        }
+    }
+}

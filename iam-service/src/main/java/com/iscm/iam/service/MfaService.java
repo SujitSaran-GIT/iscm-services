@@ -2,8 +2,11 @@ package com.iscm.iam.service;
 
 import com.iscm.iam.model.User;
 import com.iscm.iam.repository.UserRepository;
+import com.warrenstrange.googleauth.GoogleAuthenticator;
+import com.warrenstrange.googleauth.GoogleAuthenticatorKey;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +26,10 @@ public class MfaService {
     private final UserRepository userRepository;
     private final EmailService emailService;
     private final SmsService smsService;
+    private final GoogleAuthenticator googleAuthenticator;
+
+    @Value("${app.mfa.totp.window-size:3}")
+    private int totpWindowSize;
 
     private static final String TOTP_ISSUER = "ISCM Platform";
     private static final int BACKUP_CODES_COUNT = 10;
@@ -33,15 +40,15 @@ public class MfaService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
-        SecureRandom random = new SecureRandom();
-        byte[] bytes = new byte[20];
-        random.nextBytes(bytes);
-        String secret = Base64.getEncoder().encodeToString(bytes).substring(0, 32).replace("/", "").replace("+", "");
+        // Generate proper TOTP secret using Google Authenticator
+        GoogleAuthenticatorKey key = googleAuthenticator.createCredentials();
+        String secret = key.getKey();
 
         user.setMfaSecret(secret);
         user.setMfaType("TOTP");
         userRepository.save(user);
 
+        log.info("TOTP secret generated for user: {}", userId);
         return secret;
     }
 
@@ -63,36 +70,43 @@ public class MfaService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         if (!"TOTP".equals(user.getMfaType()) || user.getMfaSecret() == null) {
+            log.warn("MFA not set up for user: {}", userId);
             return false;
         }
 
-        // Simplified TOTP verification - in production, use a proper TOTP library
-        // This is a basic implementation for demonstration
-        return verifySimpleCode(user.getMfaSecret(), code);
-    }
-
-    private boolean verifySimpleCode(String secret, String code) {
-        // This is a simplified verification. In production, use:
-        // - A proper TOTP library like Google Authenticator
-        // - Time-based verification with proper HMAC hashing
-        // For now, we'll use a basic validation
-
         try {
-            // Basic length check
-            if (code == null || code.length() != 6) {
+            // Input validation
+            if (code == null || code.trim().isEmpty()) {
+                log.warn("Empty TOTP code provided for user: {}", userId);
                 return false;
             }
 
-            // Verify it's all digits
-            if (!code.matches("\\d+")) {
+            // Remove any spaces and validate format
+            String cleanCode = code.trim().replaceAll("\\s", "");
+            if (!cleanCode.matches("\\d{6}")) {
+                log.warn("Invalid TOTP code format for user: {}", userId);
                 return false;
             }
 
-            // For demo purposes, we'll accept any 6-digit code
-            // In production, implement proper TOTP algorithm
-            return true;
+            // Convert to integer
+            int codeValue = Integer.parseInt(cleanCode);
+
+            // Verify TOTP using Google Authenticator library with configured window size
+            boolean isValid = googleAuthenticator.authorize(user.getMfaSecret(), codeValue, totpWindowSize);
+
+            if (isValid) {
+                log.info("TOTP verification successful for user: {}", userId);
+            } else {
+                log.warn("Invalid TOTP code for user: {}", userId);
+            }
+
+            return isValid;
+
+        } catch (NumberFormatException e) {
+            log.warn("Invalid TOTP code format for user: {}", userId);
+            return false;
         } catch (Exception e) {
-            log.error("Error verifying TOTP code", e);
+            log.error("Error verifying TOTP code for user: {}", userId, e);
             return false;
         }
     }
