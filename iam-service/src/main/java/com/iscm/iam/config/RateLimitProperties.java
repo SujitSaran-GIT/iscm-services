@@ -7,8 +7,8 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 @Data
-@Component
-@ConfigurationProperties(prefix = "app.rate-limit")
+//@Component
+//@ConfigurationProperties(prefix = "app.rate-limit")
 public class RateLimitProperties {
 
     private Auth auth = new Auth();

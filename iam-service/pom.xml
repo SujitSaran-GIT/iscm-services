@@ -51,11 +51,11 @@
 		</dependency>
 
 
-		<!-- Redis for caching and rate limiting -->
-        <dependency>
+		<!-- Redis for caching and rate limiting - DISABLED -->
+        <!-- <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
+        </dependency> -->
 
 		<!-- Email for notifications -->
 		<dependency>
@@ -87,11 +87,11 @@
 			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 
-		<!-- Spring Session for Redis session management -->
-		<dependency>
+		<!-- Spring Session for Redis session management - DISABLED -->
+		<!-- <dependency>
 			<groupId>org.springframework.session</groupId>
 			<artifactId>spring-session-data-redis</artifactId>
-		</dependency>
+		</dependency> -->
 
 		<!-- Servlet API -->
 		<dependency>

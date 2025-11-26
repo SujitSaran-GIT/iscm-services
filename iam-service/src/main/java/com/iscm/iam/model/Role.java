@@ -1,9 +1,9 @@
 package com.iscm.iam.model;
 
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import java.util.ArrayList;
 import java.util.List;
 
-import com.iscm.iam.model.Permission;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -15,12 +15,14 @@ import jakarta.persistence.ManyToMany;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Getter
 @Setter
+@Builder
 @AllArgsConstructor
 @NoArgsConstructor
 @Entity
@@ -44,5 +46,6 @@ public class Role extends BaseEntity{
     private List<Permission> permissions = new ArrayList<>();
 
     @OneToMany(mappedBy = "role", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonManagedReference("role-userRoles")
     private List<UserRole> userRoles = new ArrayList<>();
 }

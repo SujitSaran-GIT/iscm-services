@@ -7,6 +7,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 
+import jakarta.annotation.PostConstruct;
 import javax.crypto.SecretKey;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +18,7 @@ import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.Keys;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -35,6 +37,17 @@ public class JwtUtil {
     @Value("${app.jwt.expiration.refresh:604800}") // 7 days
     private Long refreshTokenExpiration;
 
+    // Cached signing keys for performance optimization
+    private SecretKey cachedSigningKey;
+    private SecretKey cachedRefreshSigningKey;
+
+    @PostConstruct
+    private void init() {
+        // Cache signing keys to avoid repeated key generation
+        this.cachedSigningKey = Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+        this.cachedRefreshSigningKey = Keys.hmacShaKeyFor(jwtRefreshSecret.getBytes(StandardCharsets.UTF_8));
+    }
+
     public Long getAccessTokenExpiration() {
         return accessTokenExpiration;
     }
@@ -44,11 +57,34 @@ public class JwtUtil {
     }
 
     private SecretKey getSigningKey() {
-        return Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
+        return cachedSigningKey;
     }
 
     private SecretKey getRefreshSigningKey() {
-        return Keys.hmacShaKeyFor(jwtRefreshSecret.getBytes(StandardCharsets.UTF_8));
+        return cachedRefreshSigningKey;
+    }
+
+    @Data
+    public static class JwtClaims {
+        private final String userId;
+        private final String email;
+        private final List<String> roles;
+        private final String tenantId;
+        private final String jti;
+        private final Claims claims;
+
+        public JwtClaims(Claims claims) {
+            this.claims = claims;
+            this.userId = claims.getSubject();
+            this.email = claims.get("email", String.class);
+            this.roles = claims.get("roles", List.class);
+            this.tenantId = claims.get("tenantId", String.class);
+            this.jti = claims.getId();
+        }
+
+        public boolean isValid() {
+            return userId != null && email != null && roles != null;
+        }
     }
 
     public String generateAccessToken(UUID userId, String email, List<String> roles, UUID tenantId) {
@@ -77,40 +113,45 @@ public class JwtUtil {
         .compact();
     }
 
-    public boolean validateToken(String token) {
+    // OPTIMIZED: Single-pass JWT parsing method
+    public JwtClaims extractAllClaims(String token) {
         try {
-            Jwts.parser().setSigningKey(getSigningKey()).build().parseClaimsJws(token);
+            Claims claims = Jwts.parser()
+                    .setSigningKey(getSigningKey())
+                    .build()
+                    .parseClaimsJws(token)
+                    .getBody();
 
-            return true;
+            return new JwtClaims(claims);
         } catch (ExpiredJwtException ex) {
             log.error("JWT token expired: {}", ex.getMessage());
+            return null;
         } catch (MalformedJwtException ex) {
             log.error("Invalid JWT token: {}", ex.getMessage());
+            return null;
         } catch (Exception ex) {
-            log.error("JWT validation error: {}", ex.getMessage());
+            log.error("JWT parsing error: {}", ex.getMessage());
+            return null;
         }
-        return false;
+    }
+
+    public boolean validateToken(String token) {
+        return extractAllClaims(token) != null;
     }
 
     public String getUserIdFromToken(String token) {
-        Claims claims = Jwts.parser().setSigningKey(getSigningKey()).build().parseClaimsJws(token).getBody();
-
-        return claims.getSubject();
+        JwtClaims claims = extractAllClaims(token);
+        return claims != null ? claims.getUserId() : null;
     }
 
     public List<String> getRolesFromToken(String token) {
-        Claims claims = Jwts.parser().setSigningKey(getSigningKey()).build().parseClaimsJws(token).getBody();
-
-        return claims.get("roles", List.class);
+        JwtClaims claims = extractAllClaims(token);
+        return claims != null ? claims.getRoles() : null;
     }
 
     public String getEmailFromToken(String token) {
-        Claims claims = Jwts.parser()
-                .setSigningKey(getSigningKey())
-                .build()
-                .parseClaimsJws(token)
-                .getBody();
-        return claims.get("email", String.class);
+        JwtClaims claims = extractAllClaims(token);
+        return claims != null ? claims.getEmail() : null;
     }
 
     public boolean validateRefreshToken(String token) {

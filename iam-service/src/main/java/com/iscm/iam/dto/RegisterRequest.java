@@ -27,6 +27,10 @@ public class RegisterRequest {
             example = "SecurePass123!", requiredMode = Schema.RequiredMode.REQUIRED, minLength = 8, maxLength = 128)
     private String password;
 
+    @NotBlank(message = "Password confirmation is required")
+    @Schema(description = "Password confirmation must match the password", example = "SecurePass123!", requiredMode = Schema.RequiredMode.REQUIRED)
+    private String confirmPassword;
+
     @NotBlank(message = "First name is required")
     @Size(min = 1, max = 50, message = "First name must be between 1 and 50 characters")
     @Pattern(regexp = "^[a-zA-Z\\s'-]+$", message = "First name can only contain letters, spaces, hyphens, and apostrophes")
@@ -48,5 +52,10 @@ public class RegisterRequest {
     // Custom validation method for additional security checks
     public void validateAdditionalFields() {
         // Additional validation logic will be handled by SecurityValidator in service layer
+
+        // Validate password confirmation
+        if (password != null && confirmPassword != null && !password.equals(confirmPassword)) {
+            throw new IllegalArgumentException("Password and confirmation password do not match");
+        }
     }
 }

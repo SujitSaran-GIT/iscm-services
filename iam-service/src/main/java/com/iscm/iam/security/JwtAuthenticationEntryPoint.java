@@ -2,6 +2,7 @@ package com.iscm.iam.security;
 
 import java.io.IOException;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
@@ -19,6 +20,12 @@ import lombok.extern.slf4j.Slf4j;
 @Component
 public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint{
 
+    private final ObjectMapper objectMapper;
+
+    public JwtAuthenticationEntryPoint(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
+
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authException) throws IOException, ServletException {
         log.error("Unauthorized error: {}", authException.getMessage());
@@ -33,8 +40,7 @@ public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint{
             request.getServletPath()
         );
 
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.writeValue(response.getOutputStream(), errorResponse);
+        objectMapper.writeValue(response.getOutputStream(), errorResponse);
     }
     
 }

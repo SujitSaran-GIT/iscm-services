@@ -12,13 +12,15 @@ import java.util.UUID;
 
 @Repository
 public interface OrganizationRepository extends JpaRepository<Organization, UUID> {
-    
+
+    Optional<Organization> findByName(String name);
+
     Optional<Organization> findByDomain(String domain);
-    
+
     List<Organization> findByParentOrganizationIsNull();
-    
+
     @Query("SELECT o FROM Organization o WHERE o.parentOrganization.id = :parentId")
     List<Organization> findByParentOrganizationId(@Param("parentId") UUID parentId);
-    
+
     Boolean existsByDomain(String domain);
 }

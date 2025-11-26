@@ -2,24 +2,22 @@ package com.iscm.iam.security;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collections;
 import java.util.UUID;
 
+/**
+ * DISABLED STUB - JWT blacklist service has been disabled for simplification.
+ * This service does not actually blacklist JWT tokens.
+ * To re-enable JWT blacklisting, restore the original implementation and add Redis dependencies.
+ */
 @Slf4j
-@Service
+//@Service
 public class JwtBlacklistService {
 
-    private final RedisTemplate<String, String> redisTemplate;
-    private final RedisScript<Boolean> blacklistScript;
-    private final JwtUtil jwtUtil;
-
-    @Value("${app.jwt.blacklist.enabled:true}")
+    @Value("${app.jwt.blacklist.enabled:false}")
     private boolean blacklistEnabled;
 
     @Value("${app.jwt.blacklist.cleanup-interval:3600}")
@@ -28,119 +26,38 @@ public class JwtBlacklistService {
     @Value("${app.jwt.blacklist.max-size:10000}")
     private int maxBlacklistSize;
 
-    private static final String BLACKLIST_PREFIX = "jwt:blacklist:";
-    private static final String JTI_PREFIX = "jti:";
-
-    // Precompiled Lua script for atomic operations
-    private static final String BLACKLIST_SCRIPT = """
-        local key = KEYS[1]
-        local jti = ARGV[1]
-        local expiration = tonumber(ARGV[2])
-        local current_time = tonumber(ARGV[3])
-
-        -- Check if token is already blacklisted
-        local exists = redis.call('exists', key .. jti)
-        if exists == 1 then
-            return 1  -- Already blacklisted
-        end
-
-        -- Add to blacklist with expiration
-        redis.call('set', key .. jti, 'blacklisted')
-        redis.call('expire', key .. jti, expiration)
-
-        -- Track blacklist size
-        local size_key = key .. 'size'
-        local current_size = redis.call('incr', size_key)
-        redis.call('expire', size_key, 86400)  -- Size counter expires in 24 hours
-
-        -- Cleanup old entries if size exceeds limit
-        if current_size > tonumber(ARGV[4]) then
-            local cutoff = current_time - 86400  -- Remove entries older than 24 hours
-            redis.call('zremrangebyscore', key .. 'zset', 0, cutoff)
-        end
-
-        return 0  -- Successfully blacklisted
-        """;
-
-    public JwtBlacklistService(RedisTemplate<String, String> redisTemplate, JwtUtil jwtUtil) {
-        this.redisTemplate = redisTemplate;
-        this.jwtUtil = jwtUtil;
-        this.blacklistScript = RedisScript.of(BLACKLIST_SCRIPT, Boolean.class);
-    }
-
     /**
-     * Blacklist a JWT token
+     * Blacklist a JWT token - DISABLED
      * @param token JWT token to blacklist
      * @param reason Reason for blacklisting
      */
     public void blacklistToken(String token, String reason) {
-        if (!blacklistEnabled || token == null || token.trim().isEmpty()) {
+        if (!blacklistEnabled) {
+            log.debug("JWT blacklist disabled - not blacklisting token");
             return;
         }
 
-        try {
-            // Extract token ID (jti claim) or generate from token hash
-            String jti = extractTokenId(token);
-
-            // Calculate expiration based on token expiration time
-            Instant expiration = getTokenExpiration(token);
-            long expirationSeconds = Duration.between(Instant.now(), expiration).getSeconds();
-
-            if (expirationSeconds <= 0) {
-                log.info("Token already expired, not blacklisting: {}", jti);
-                return;
-            }
-
-            // Execute blacklist script
-            Boolean result = redisTemplate.execute(
-                blacklistScript,
-                Collections.singletonList(BLACKLIST_PREFIX),
-                jti,
-                String.valueOf(expirationSeconds),
-                String.valueOf(Instant.now().getEpochSecond()),
-                String.valueOf(maxBlacklistSize)
-            );
-
-            if (result != null && !result) {
-                log.info("Token blacklisted successfully: jti={}, reason={}, expiresAt={}", jti, reason, expiration);
-
-                // Add to sorted set for tracking and cleanup
-                redisTemplate.opsForZSet().add(
-                    BLACKLIST_PREFIX + "zset",
-                    jti,
-                    Instant.now().getEpochSecond()
-                );
-                redisTemplate.expire(BLACKLIST_PREFIX + "zset", Duration.ofDays(7));
-
-            } else {
-                log.warn("Token was already blacklisted: jti={}", jti);
-            }
-
-        } catch (Exception e) {
-            log.error("Failed to blacklist token: {}", token, e);
-        }
+        log.info("JWT blacklist disabled - not blacklisting token for reason: {}", reason);
+        // No action taken when JWT blacklist is disabled
     }
 
     /**
-     * Blacklist all tokens for a user
+     * Blacklist all tokens for a user - DISABLED
      * @param userId User ID whose tokens should be blacklisted
      * @param reason Reason for blacklisting
      */
     public void blacklistAllUserTokens(UUID userId, String reason) {
-        try {
-            // Add user to blacklist with expiration
-            String userKey = BLACKLIST_PREFIX + "user:" + userId;
-            redisTemplate.opsForValue().set(userKey, reason, Duration.ofDays(7));
-
-            log.info("All tokens blacklisted for user: {}, reason: {}", userId, reason);
-
-        } catch (Exception e) {
-            log.error("Failed to blacklist all user tokens for user: {}", userId, e);
+        if (!blacklistEnabled) {
+            log.debug("JWT blacklist disabled - not blacklisting tokens for user: {}", userId);
+            return;
         }
+
+        log.info("JWT blacklist disabled - not blacklisting tokens for user: {}, reason: {}", userId, reason);
+        // No action taken when JWT blacklist is disabled
     }
 
     /**
-     * Check if a token is blacklisted
+     * Check if a token is blacklisted - DISABLED
      * @param token JWT token to check
      * @return true if token is blacklisted, false otherwise
      */
@@ -149,43 +66,12 @@ public class JwtBlacklistService {
             return false;
         }
 
-        try {
-            String jti = extractTokenId(token);
-            String key = BLACKLIST_PREFIX + jti;
-
-            // Check if token is blacklisted
-            Boolean exists = redisTemplate.hasKey(key);
-
-            if (Boolean.TRUE.equals(exists)) {
-                log.debug("Token is blacklisted: jti={}", jti);
-                return true;
-            }
-
-            // Check if user is blacklisted
-            if (jwtUtil.validateToken(token)) {
-                try {
-                    String userId = jwtUtil.getUserIdFromToken(token);
-                    String userKey = BLACKLIST_PREFIX + "user:" + userId;
-
-                    if (Boolean.TRUE.equals(redisTemplate.hasKey(userKey))) {
-                        log.debug("Token belongs to blacklisted user: userId={}", userId);
-                        return true;
-                    }
-                } catch (Exception e) {
-                    log.debug("Failed to extract user ID from token for blacklist check", e);
-                }
-            }
-
-            return false;
-
-        } catch (Exception e) {
-            log.error("Failed to check if token is blacklisted: {}", token, e);
-            return false; // Fail open - allow token if check fails
-        }
+        log.debug("JWT blacklist disabled - allowing token");
+        return false; // Always allow tokens when blacklist is disabled
     }
 
     /**
-     * Check if all tokens for a user are blacklisted
+     * Check if all tokens for a user are blacklisted - DISABLED
      * @param userId User ID to check
      * @return true if user's tokens are blacklisted, false otherwise
      */
@@ -194,149 +80,61 @@ public class JwtBlacklistService {
             return false;
         }
 
-        try {
-            String userKey = BLACKLIST_PREFIX + "user:" + userId;
-            return Boolean.TRUE.equals(redisTemplate.hasKey(userKey));
-        } catch (Exception e) {
-            log.error("Failed to check if user tokens are blacklisted: {}", userId, e);
-            return false;
-        }
+        log.debug("JWT blacklist disabled - allowing user: {}", userId);
+        return false; // Always allow users when blacklist is disabled
     }
 
     /**
-     * Remove a token from blacklist (e.g., for testing)
+     * Remove a token from blacklist (e.g., for testing) - DISABLED
      * @param token JWT token to remove from blacklist
      */
     public void removeFromBlacklist(String token) {
-        if (!blacklistEnabled || token == null || token.trim().isEmpty()) {
+        if (!blacklistEnabled) {
+            log.debug("JWT blacklist disabled - not removing token");
             return;
         }
 
-        try {
-            String jti = extractTokenId(token);
-            String key = BLACKLIST_PREFIX + jti;
-
-            redisTemplate.delete(key);
-            redisTemplate.opsForZSet().remove(BLACKLIST_PREFIX + "zset", jti);
-
-            log.info("Token removed from blacklist: jti={}", jti);
-
-        } catch (Exception e) {
-            log.error("Failed to remove token from blacklist: {}", token, e);
-        }
+        log.info("JWT blacklist disabled - not removing token");
+        // No action taken when JWT blacklist is disabled
     }
 
     /**
-     * Remove user from blacklist
+     * Remove user from blacklist - DISABLED
      * @param userId User ID to remove from blacklist
      */
     public void removeFromUserBlacklist(UUID userId) {
         if (!blacklistEnabled) {
+            log.debug("JWT blacklist disabled - not removing user: {}", userId);
             return;
         }
 
-        try {
-            String userKey = BLACKLIST_PREFIX + "user:" + userId;
-            redisTemplate.delete(userKey);
-
-            log.info("User removed from blacklist: userId={}", userId);
-
-        } catch (Exception e) {
-            log.error("Failed to remove user from blacklist: {}", userId, e);
-        }
+        log.info("JWT blacklist disabled - not removing user: {}", userId);
+        // No action taken when JWT blacklist is disabled
     }
 
     /**
-     * Clean up expired blacklisted tokens
+     * Clean up expired blacklisted tokens - DISABLED
      */
     public void cleanupExpiredTokens() {
-        try {
-            // Remove expired tokens from sorted set
-            long cutoff = Instant.now().minusSeconds(86400).getEpochSecond(); // 24 hours ago
-            Long removed = redisTemplate.opsForZSet().removeRangeByScore(
-                BLACKLIST_PREFIX + "zset", 0, cutoff);
-
-            if (removed != null && removed > 0) {
-                log.info("Cleaned up {} expired blacklisted tokens", removed);
-            }
-
-            // Reset size counter
-            redisTemplate.delete(BLACKLIST_PREFIX + "size");
-
-        } catch (Exception e) {
-            log.error("Failed to cleanup expired blacklisted tokens", e);
+        if (!blacklistEnabled) {
+            log.debug("JWT blacklist disabled - no cleanup needed");
+            return;
         }
+
+        log.info("JWT blacklist cleanup disabled - no action taken");
+        // No action taken when JWT blacklist is disabled
     }
 
     /**
-     * Get blacklist statistics
+     * Get blacklist statistics - DISABLED
      */
     public BlacklistStatistics getBlacklistStatistics() {
-        try {
-            Long activeTokens = redisTemplate.opsForZSet().size(BLACKLIST_PREFIX + "zset");
-            String sizeCount = redisTemplate.opsForValue().get(BLACKLIST_PREFIX + "size");
-            long size = sizeCount != null ? Long.parseLong(sizeCount) : 0;
-
-            return BlacklistStatistics.builder()
-                    .activeBlacklistedTokens(activeTokens != null ? activeTokens.intValue() : 0)
-                    .totalBlacklistedTokens((int) size)
-                    .blacklistEnabled(blacklistEnabled)
-                    .maxBlacklistSize(maxBlacklistSize)
-                    .build();
-
-        } catch (Exception e) {
-            log.error("Failed to get blacklist statistics", e);
-            return BlacklistStatistics.builder()
-                    .activeBlacklistedTokens(0)
-                    .totalBlacklistedTokens(0)
-                    .blacklistEnabled(blacklistEnabled)
-                    .maxBlacklistSize(maxBlacklistSize)
-                    .build();
-        }
-    }
-
-    // Helper methods
-
-    private String extractTokenId(String token) {
-        try {
-            // Try to extract JTI claim from access token
-            String jti = jwtUtil.getJtiFromToken(token);
-            if (jti != null) {
-                return jti;
-            }
-
-            // Try to extract JTI from refresh token
-            jti = jwtUtil.getJtiFromRefreshToken(token);
-            if (jti != null) {
-                return jti;
-            }
-
-            // Fallback: generate deterministic hash
-            log.debug("No JTI found in token, using hash fallback");
-            return "jti:" + Integer.toHexString(token.hashCode());
-
-        } catch (Exception e) {
-            log.debug("Failed to extract JTI from token", e);
-            return "jti:" + Integer.toHexString(token.hashCode());
-        }
-    }
-
-    private Instant getTokenExpiration(String token) {
-        try {
-            // Try to get expiration from access token
-            Instant expiration = jwtUtil.getExpirationFromToken(token);
-            if (expiration != null) {
-                return expiration;
-            }
-
-            // Fallback: use default expiration
-            log.debug("No expiration found in token, using default");
-            return Instant.now().plus(Duration.ofHours(1));
-
-        } catch (Exception e) {
-            log.debug("Failed to extract expiration from token", e);
-            return Instant.now().plus(Duration.ofHours(1));
-        }
+        return BlacklistStatistics.builder()
+                .activeBlacklistedTokens(0)
+                .totalBlacklistedTokens(0)
+                .blacklistEnabled(blacklistEnabled)
+                .maxBlacklistSize(maxBlacklistSize)
+                .build();
     }
 
     // DTO for blacklist statistics

@@ -29,10 +29,10 @@ public class FraudDetectionService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
-    @Value("${app.fraud.detection.enabled:true}")
+    @Value("${app.fraud.detection.enabled:false}")
     private boolean fraudDetectionEnabled;
 
-    @Value("${app.fraud.service.url}")
+    @Value("${app.fraud.service.url:}")
     private String fraudServiceUrl;
 
     @Value("${app.fraud.threshold.failed-attempts:5}")

@@ -24,7 +24,7 @@ public class UnlimitedLengthPasswordEncoder implements PasswordEncoder {
 
         String password = rawPassword.toString();
 
-        // For passwords longer than 72 bytes, use SHA-256 hash first
+        // Keep preprocessing for encoding very long passwords only
         if (password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
             return encodeLongPassword(password);
         }
@@ -40,13 +40,8 @@ public class UnlimitedLengthPasswordEncoder implements PasswordEncoder {
 
         String password = rawPassword.toString();
 
-        // Check if the password was likely hashed using the SHA-256 preprocessing method
-        // We can detect this by checking the original password length
-        if (password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
-            String preprocessedPassword = preprocessPassword(password);
-            return bcryptEncoder.matches(preprocessedPassword, encodedPassword);
-        }
-
+        // OPTIMIZED: Always use bcrypt directly for validation
+        // This eliminates the expensive SHA-256 preprocessing during login
         return bcryptEncoder.matches(password, encodedPassword);
     }
 

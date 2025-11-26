@@ -18,12 +18,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 
 @Slf4j
-@Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 1) // Execute after input validation
+//@Component
+//@Order(Ordered.HIGHEST_PRECEDENCE + 1) // Execute after input validation
 public class RateLimitingFilter extends OncePerRequestFilter {
 
-    @Autowired
-    private RateLimitingService rateLimitingService;
+    // @Autowired - disabled since rate limiting is disabled
+    private RateLimitingService rateLimitingService = null;
 
     // Cache for request patterns to improve performance
     private final Map<String, RequestPattern> patternCache = new ConcurrentHashMap<>();
@@ -33,16 +33,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
 
         try {
-            String clientIp = getClientIpAddress(request);
-            String requestPath = request.getRequestURI();
-
-            // Apply rate limiting based on request type
-            if (shouldApplyRateLimiting(requestPath, request.getMethod())) {
-                if (applyRateLimiting(request, clientIp, response)) {
-                    return; // Request was blocked
-                }
-            }
-
+            // Rate limiting is disabled - just continue
             filterChain.doFilter(request, response);
 
         } catch (Exception e) {

@@ -38,6 +38,10 @@ public interface UserSessionRepository extends JpaRepository<UserSession, UUID> 
 
     // ========== Performance Optimized Queries ==========
 
+    // Critical fix: Find session by refresh token hash without full table scan
+    @Query("SELECT us FROM UserSession us WHERE us.refreshTokenHash = :tokenHash AND us.revoked = false AND us.expiresAt > :now")
+    Optional<UserSession> findByRefreshTokenHashAndValid(@Param("tokenHash") String tokenHash, @Param("now") LocalDateTime now);
+
     // Optimized session validation queries
     @Query("SELECT us FROM UserSession us WHERE us.user.id = :userId AND us.revoked = false AND us.expiresAt > :now ORDER BY us.createdAt DESC")
     List<UserSession> findActiveSessionsByUser(@Param("userId") UUID userId, @Param("now") LocalDateTime now);

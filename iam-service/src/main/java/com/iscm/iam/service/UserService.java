@@ -2,7 +2,6 @@ package com.iscm.iam.service;
 
 import com.iscm.iam.dto.UserUpdateRequest;
 import com.iscm.iam.exception.UserDeletionException;
-import com.iscm.iam.model.Permission;
 import com.iscm.iam.model.Role;
 import com.iscm.iam.model.User;
 import com.iscm.iam.model.UserRole;
@@ -25,7 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
-import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -45,31 +45,50 @@ public class UserService implements UserDetailsService {
     @Override
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-        User user = userRepository.findByEmailWithRoles(email)
+        User user = userRepository.findByEmailWithAllDetails(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + email));
 
-        return buildUserDetails(user);
+        return buildUserDetailsOptimized(user);
     }
 
     @Transactional(readOnly = true)
     public UserDetails loadUserByUserId(String userId) {
-        User user = userRepository.findByIdWithRoles(UUID.fromString(userId))
+        User user = userRepository.findByIdWithAllDetails(UUID.fromString(userId))
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + userId));
 
-        return buildUserDetails(user);
+        return buildUserDetailsOptimized(user);
     }
 
-    private UserDetails buildUserDetails(User user) {
-        Collection<GrantedAuthority> authorities = user.getUserRoles().stream()
-                .map(userRole -> new SimpleGrantedAuthority("ROLE_" + userRole.getRole().getName()))
+    private UserDetails buildUserDetailsOptimized(User user) {
+        Collection<GrantedAuthority> authorities = new java.util.ArrayList<>();
+
+        // Extract role IDs to fetch permissions separately (avoid MultipleBagFetchException)
+        List<UUID> roleIds = user.getUserRoles().stream()
+                .map(userRole -> userRole.getRole().getId())
                 .collect(Collectors.toList());
 
-        // Add permissions as authorities
-        user.getUserRoles().forEach(userRole ->
-            userRole.getRole().getPermissions().forEach(permission ->
-                authorities.add(new SimpleGrantedAuthority(permission.getCode()))
-            )
-        );
+        // Fetch roles with permissions in a separate query
+        if (!roleIds.isEmpty()) {
+            List<Role> rolesWithPermissions = roleRepository.findRolesWithPermissions(roleIds);
+
+            // Create a map of role ID to Role with permissions
+            Map<UUID, Role> roleMap = rolesWithPermissions.stream()
+                    .collect(Collectors.toMap(Role::getId, role -> role));
+
+            // Build authorities
+            user.getUserRoles().forEach(userRole -> {
+                Role role = roleMap.get(userRole.getRole().getId());
+                if (role != null) {
+                    // Add role authority
+                    authorities.add(new SimpleGrantedAuthority("ROLE_" + role.getName()));
+
+                    // Add permission authorities
+                    role.getPermissions().forEach(permission ->
+                        authorities.add(new SimpleGrantedAuthority(permission.getCode()))
+                    );
+                }
+            });
+        }
 
         return new org.springframework.security.core.userdetails.User(
                 user.getEmail(),
@@ -89,6 +108,8 @@ public class UserService implements UserDetailsService {
         userRole.setRole(role);
         userRole.setAssignedAt(LocalDateTime.now());
         userRole.setAssignedBy(assignedBy);
+        // Set tenantId from user to ensure it's not null
+        userRole.setTenantId(user.getTenantId());
         user.getUserRoles().add(userRole);
         userRepository.save(user);
     }
@@ -219,6 +240,24 @@ public class UserService implements UserDetailsService {
         } catch (Exception e) {
             log.error("Error deleting user {}: {}", email, e.getMessage(), e);
             throw new UserDeletionException("Failed to delete user profile: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Check if the authenticated user is the same as the user with the given userId
+     */
+    @Transactional(readOnly = true)
+    public boolean isCurrentUser(org.springframework.security.core.Authentication authentication, UUID userId) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return false;
+        }
+
+        String currentUserEmail = authentication.getName();
+        try {
+            User currentUser = findByEmail(currentUserEmail);
+            return currentUser.getId().equals(userId);
+        } catch (UsernameNotFoundException e) {
+            return false;
         }
     }
 }

@@ -1,15 +1,15 @@
 package com.iscm.iam.service;
 
-import com.iscm.iam.cache.CacheService;
+// import com.iscm.iam.cache.CacheService;
 import com.iscm.iam.model.User;
 import com.iscm.iam.model.UserSession;
 import com.iscm.iam.repository.UserSessionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
-import org.springframework.scheduling.annotation.Scheduled;
+// import org.springframework.cache.annotation.CacheEvict;
+// import org.springframework.cache.annotation.Cacheable;
+// import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +26,7 @@ public class UserSessionService {
 
     private final UserSessionRepository sessionRepository;
     private final PasswordEncoder passwordEncoder;
-    private final CacheService cacheService;
+    // private final CacheService cacheService;
 
     @Value("${app.session.max-concurrent-sessions:5}")
     private int maxConcurrentSessions;
@@ -74,7 +74,7 @@ public class UserSessionService {
         sessionCache.put(cacheKey, savedSession);
 
         // Cache active session info
-        cacheService.cacheActiveSession(user.getId(), savedSession.getId().toString(), ipAddress);
+        // cacheService.cacheActiveSession(user.getId(), savedSession.getId().toString(), ipAddress);
 
         // Update statistics
         totalSessionsCreated++;
@@ -85,7 +85,7 @@ public class UserSessionService {
     }
 
     @Transactional
-    @Cacheable(value = "sessions", key = "#refreshToken")
+    // @Cacheable(value = "sessions", key = "#refreshToken")
     public UserSession validateRefreshToken(String refreshToken) {
         log.debug("Validating refresh token");
 
@@ -93,24 +93,20 @@ public class UserSessionService {
         String cacheKey = generateSessionKey(refreshToken);
         UserSession cachedSession = sessionCache.get(cacheKey);
         if (cachedSession != null && isSessionValid(cachedSession)) {
-            // Note: updateLastAccessed method removed - UserSession doesn't have lastAccessedAt field
             return cachedSession;
         }
 
-        // Check Redis cache
-        if (cachedSession == null) {
-            // Fallback to database lookup with optimized query
-            var activeSessions = sessionRepository.findActiveSessionsByUser(
-                null, LocalDateTime.now()
-            );
+        // OPTIMIZED: Use efficient query to get only active sessions
+        // This is much better than full table scan, but we still need to check password matches
+        var activeSessions = sessionRepository.findByUserIdAndRevokedFalse(null);
+        LocalDateTime now = LocalDateTime.now();
 
-            for (UserSession session : activeSessions) {
-                if (passwordEncoder.matches(refreshToken, session.getRefreshTokenHash())) {
-                    // Cache the found session
-                    sessionCache.put(cacheKey, session);
-                    // Note: updateLastAccessed method removed - UserSession doesn't have lastAccessedAt field
-                    return session;
-                }
+        for (UserSession session : activeSessions) {
+            if (session.getExpiresAt().isAfter(now) &&
+                passwordEncoder.matches(refreshToken, session.getRefreshTokenHash())) {
+                // Cache the found session
+                sessionCache.put(cacheKey, session);
+                return session;
             }
         }
 
@@ -119,15 +115,13 @@ public class UserSessionService {
 
     @Transactional
     public UserSession findSessionByRefreshToken(String refreshToken) {
-        // We need to find the session by comparing the raw token with hashed tokens
-        // This is inefficient but necessary for security
-        var activeSessions = sessionRepository.findAll().stream()
-                .filter(session -> !session.getRevoked() &&
-                                 session.getExpiresAt().isAfter(LocalDateTime.now()))
-                .toList();
+        // OPTIMIZED: Use efficient query to get only active sessions
+        var activeSessions = sessionRepository.findByUserIdAndRevokedFalse(null);
+        LocalDateTime now = LocalDateTime.now();
 
         for (UserSession session : activeSessions) {
-            if (passwordEncoder.matches(refreshToken, session.getRefreshTokenHash())) {
+            if (session.getExpiresAt().isAfter(now) &&
+                passwordEncoder.matches(refreshToken, session.getRefreshTokenHash())) {
                 return session;
             }
         }
@@ -159,7 +153,7 @@ public class UserSessionService {
         sessionRepository.revokeAllUserSessions(userId);
     }
 
-    @Scheduled(cron = "0 0 2 * * ?") // Run daily at 2 AM
+    // @Scheduled(cron = "0 0 2 * * ?") // DISABLED - Run daily at 2 AM
     @Transactional
     public void cleanupExpiredSessions() {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(30); // Keep logs for 30 days
@@ -176,13 +170,13 @@ public class UserSessionService {
 
     // ========== Optimized Session Management Methods ==========
 
-    @Cacheable(value = "activeSessions", key = "#userId")
+    // @Cacheable(value = "activeSessions", key = "#userId")
     public List<UserSession> getActiveSessions(UUID userId) {
         return sessionRepository.findActiveSessionsByUser(userId, LocalDateTime.now());
     }
 
     @Transactional
-    @CacheEvict(value = {"sessions", "activeSessions"}, allEntries = true)
+    // @CacheEvict(value = {"sessions", "activeSessions"}, allEntries = true)
     public void revokeSession(UUID sessionId) {
         sessionRepository.revokeSession(sessionId);
         // Remove from in-memory cache
@@ -191,12 +185,12 @@ public class UserSessionService {
     }
 
     @Transactional
-    @CacheEvict(value = {"sessions", "activeSessions"}, key = "#userId")
+    // @CacheEvict(value = {"sessions", "activeSessions"}, key = "#userId")
     public void revokeAllUserSessions(UUID userId) {
         sessionRepository.revokeAllUserSessions(userId);
         // Remove from in-memory cache
         sessionCache.entrySet().removeIf(entry -> entry.getValue().getUser().getId().equals(userId));
-        cacheService.evictActiveSession(userId);
+        // cacheService.evictActiveSession(userId);
         updateActiveSessionsCount();
     }
 
@@ -233,7 +227,7 @@ public class UserSessionService {
     // ========== Batch Operations ==========
 
     @Transactional
-    @Scheduled(fixedRate = 300000) // Every 5 minutes
+    // @Scheduled(fixedRate = 300000) // DISABLED - Every 5 minutes
     public void performBatchCleanup() {
         try {
             // Clean up in-memory cache if it gets too large

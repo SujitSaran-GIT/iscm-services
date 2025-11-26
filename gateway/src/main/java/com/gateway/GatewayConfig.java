@@ -1,19 +1,19 @@
 package com.gateway;
 
-import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+// import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.springframework.http.HttpMethod;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
-import org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter;
+// import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
+// import org.springframework.cloud.gateway.filter.ratelimit.RedisRateLimiter;
 import org.springframework.cloud.gateway.route.RouteLocator;
 import org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
-import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
-import org.springframework.data.redis.core.ReactiveRedisTemplate;
-import org.springframework.data.redis.serializer.RedisSerializationContext;
-import org.springframework.data.redis.serializer.StringRedisSerializer;
+// import org.springframework.context.annotation.Primary;
+// import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
+// import org.springframework.data.redis.core.ReactiveRedisTemplate;
+// import org.springframework.data.redis.serializer.RedisSerializationContext;
+// import org.springframework.data.redis.serializer.StringRedisSerializer;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -23,11 +23,11 @@ import java.util.Set;
 @Configuration
 public class GatewayConfig {
 
-    @Value("${spring.redis.host:localhost}")
-    private String redisHost;
+    // @Value("${spring.redis.host:localhost}")
+    // private String redisHost;
 
-    @Value("${spring.redis.port:6379}")
-    private int redisPort;
+    // @Value("${spring.redis.port:6379}")
+    // private int redisPort;
 
     @Value("${iam.service.url:http://localhost:8081}")
     private String iamServiceUrl;
@@ -40,17 +40,17 @@ public class GatewayConfig {
                                 // Rewrite path to remove /iam prefix
                                 .rewritePath("/iam/(?<segment>.*)", "/iam/${segment}")
 
-                                // Circuit breaker configuration
-                                .circuitBreaker(c -> c
-                                        .setName("iam-circuit-breaker")
-                                        .setFallbackUri("forward:/fallback/iam")
-                                        .setStatusCodes(Set.of("500", "502", "503", "504"))
-                                )
+                                // Circuit breaker configuration - DISABLED
+                                // .circuitBreaker(c -> c
+                                //         .setName("iam-circuit-breaker")
+                                //         .setFallbackUri("forward:/fallback/iam")
+                                //         .setStatusCodes(Set.of("500", "502", "503", "504"))
+                                // )
 
-                                // Retry configuration
+                                // Optimized retry configuration
                                 .retry(retryConfig -> retryConfig
-                                        .setRetries(3)
-                                        .setBackoff(Duration.ofSeconds(1), Duration.ofSeconds(5), 2, false)
+                                        .setRetries(2)  // Reduced from 3 to 2
+                                        .setBackoff(Duration.ofMillis(200), Duration.ofSeconds(2), 2, false)
                                         .setMethods(HttpMethod.GET, HttpMethod.POST)
                                         .setExceptions(
                                             org.springframework.cloud.gateway.support.TimeoutException.class,
@@ -59,12 +59,12 @@ public class GatewayConfig {
                                         )
                                 )
 
-                                // Rate limiting
-                                .requestRateLimiter(rateLimiter -> rateLimiter
-                                        .setRateLimiter(redisRateLimiter())
-                                        .setKeyResolver(userKeyResolver())
-                                        .setDenyEmptyKey(false)
-                                )
+                                // Rate limiting - DISABLED
+                                // .requestRateLimiter(rateLimiter -> rateLimiter
+                                //         .setRateLimiter(redisRateLimiter())
+                                //         .setKeyResolver(userKeyResolver())
+                                //         .setDenyEmptyKey(false)
+                                // )
 
                                 // Add request headers
                                 .addRequestHeader("X-Gateway-Request", "true")
@@ -76,60 +76,61 @@ public class GatewayConfig {
                 .route("health", r -> r.path("/actuator/health")
                         .filters(f -> f
                                 .stripPrefix(0)
-                                .circuitBreaker(c -> c.setName("health-circuit-breaker"))
+                                // .circuitBreaker(c -> c.setName("health-circuit-breaker"))
                         )
                         .uri("http://localhost:7070"))
 
                 .build();
     }
 
-    @Bean
-    public RedisRateLimiter redisRateLimiter() {
-        // 10 requests per second, burst of 20 requests
-        return new RedisRateLimiter(10, 20, 1);
+    // @Bean
+    // public RedisRateLimiter redisRateLimiter() {
+    //     // Increased to 20 requests per second, burst of 40 requests for better performance
+    //     return new RedisRateLimiter(20, 40, 1);
+    // }
+
+    // @Bean
+    // public KeyResolver userKeyResolver() {
+    //     return exchange -> {
+    //         String path = exchange.getRequest().getPath().value();
+    //         String clientIp = exchange.getRequest().getRemoteAddress() != null
+    //             ? exchange.getRequest().getRemoteAddress().getAddress().getHostAddress()
+    //             : "anonymous";
+
+    //         // Optimized key resolution with caching
+    //         if (path.contains("/auth")) {
+    //             // Faster IP resolution for auth endpoints
+    //             String forwardedFor = exchange.getRequest().getHeaders().getFirst("X-Forwarded-For");
+    //             String ip = forwardedFor != null ? forwardedFor.split(",")[0].trim() : clientIp;
+    //             return Mono.just("auth:" + ip);
+    //         }
+
+    //         // For authenticated users
+    //         String userId = exchange.getRequest().getHeaders().getFirst("X-User-ID");
+    //         if (userId != null) {
+    //             return Mono.just("user:" + userId);
+    //         }
+
+    //         // Fallback to IP-based rate limiting
+    //         return Mono.just("ip:" + clientIp);
+    //     };
     }
 
-    @Bean
-    public KeyResolver userKeyResolver() {
-        return exchange -> {
-            String path = exchange.getRequest().getPath().value();
 
-            // Different rate limiting for different endpoints
-            if (path.contains("/auth/login") || path.contains("/auth/register")) {
-                // Stricter rate limiting for auth endpoints
-                return exchange.getRequest()
-                    .getHeaders()
-                    .getFirst("X-Forwarded-For") != null
-                    ? Mono.just(exchange.getRequest().getHeaders().getFirst("X-Forwarded-For"))
-                    : Mono.just(exchange.getRequest().getRemoteAddress() != null
-                        ? exchange.getRequest().getRemoteAddress().getAddress().getHostAddress()
-                        : "anonymous");
-            } else {
-                // Regular rate limiting for other endpoints
-                return exchange.getRequest()
-                    .getHeaders()
-                    .getFirst("X-User-ID") != null
-                    ? Mono.just("user:" + exchange.getRequest().getHeaders().getFirst("X-User-ID"))
-                    : Mono.just("anonymous");
-            }
-        };
-    }
+    // @Bean
+    // @Primary
+    // public ReactiveRedisTemplate<String, String> reactiveRedisTemplate(
+    //         ReactiveRedisConnectionFactory factory) {
+    //     StringRedisSerializer keySerializer = new StringRedisSerializer();
+    //     RedisSerializationContext<String, String> context = RedisSerializationContext
+    //             .<String, String>newSerializationContext()
+    //             .key(keySerializer)
+    //             .value(keySerializer)
+    //             .hashKey(keySerializer)
+    //             .hashValue(keySerializer)
+    //             .build();
 
-    
-    @Bean
-    @Primary
-    public ReactiveRedisTemplate<String, String> reactiveRedisTemplate(
-            ReactiveRedisConnectionFactory factory) {
-        StringRedisSerializer keySerializer = new StringRedisSerializer();
-        RedisSerializationContext<String, String> context = RedisSerializationContext
-                .<String, String>newSerializationContext()
-                .key(keySerializer)
-                .value(keySerializer)
-                .hashKey(keySerializer)
-                .hashValue(keySerializer)
-                .build();
+    //     return new ReactiveRedisTemplate<>(factory, context);
+    // }
 
-        return new ReactiveRedisTemplate<>(factory, context);
-    }
-
-    }
+    // }

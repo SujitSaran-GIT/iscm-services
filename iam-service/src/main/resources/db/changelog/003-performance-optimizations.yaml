@@ -7,6 +7,18 @@ databaseChangeLog:
         # User table indexes for authentication queries
         - createIndex:
             tableName: users
+            indexName: idx_users_email_active_locked
+            columns:
+              - column:
+                  name: email
+              - column:
+                  name: is_active
+              - column:
+                  name: account_locked_until
+            unique: false
+
+        - createIndex:
+            tableName: users
             indexName: idx_users_email_active
             columns:
               - column:

@@ -20,6 +20,7 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.XXssProtectionHeaderWriter;
 import org.springframework.web.client.RestTemplate;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iscm.iam.security.CustomAccessDeniedHandler;
 import com.iscm.iam.security.JwtAuthenticationEntryPoint;
 import com.iscm.iam.security.JwtAuthenticationFilter;
@@ -39,6 +40,7 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final UserService userService;
     private final JwtAuthenticationEntryPoint authenticationEntryPoint;
+    private final CustomAccessDeniedHandler accessDeniedHandler;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -87,9 +89,9 @@ public class SecurityConfig {
             )
             
             // Exception handling
-            .exceptionHandling(exception -> 
+            .exceptionHandling(exception ->
                 exception.authenticationEntryPoint(authenticationEntryPoint)
-                         .accessDeniedHandler(new CustomAccessDeniedHandler())
+                         .accessDeniedHandler(accessDeniedHandler)
             )
             
             // Authorization rules

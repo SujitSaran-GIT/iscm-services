@@ -8,12 +8,12 @@ import io.github.resilience4j.timelimiter.TimeLimiter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
+// import org.springframework.context.annotation.Configuration;
 
 import java.time.Duration;
 
 @Slf4j
-@Configuration
+// @Configuration
 public class CircuitBreakerConfig {
 
     @Value("${app.circuit-breaker.failure-rate-threshold:50}")
@@ -40,7 +40,7 @@ public class CircuitBreakerConfig {
     @Value("${app.circuit-breaker.timeout-duration:5000}")
     private int timeoutDuration;
 
-    @Bean
+    // @Bean
     public CircuitBreakerRegistry circuitBreakerRegistry() {
         io.github.resilience4j.circuitbreaker.CircuitBreakerConfig circuitBreakerConfig = io.github.resilience4j.circuitbreaker.CircuitBreakerConfig.custom()
                 .failureRateThreshold(failureRateThreshold)
@@ -55,7 +55,7 @@ public class CircuitBreakerConfig {
         return CircuitBreakerRegistry.of(circuitBreakerConfig);
     }
 
-    @Bean
+    // @Bean
     public RetryRegistry retryRegistry() {
         io.github.resilience4j.retry.RetryConfig retryConfig = io.github.resilience4j.retry.RetryConfig.custom()
                 .maxAttempts(3)
@@ -66,7 +66,7 @@ public class CircuitBreakerConfig {
         return RetryRegistry.of(retryConfig);
     }
 
-    @Bean
+    // @Bean
     public TimeLimiter timeLimiter() {
         io.github.resilience4j.timelimiter.TimeLimiterConfig timeLimiterConfig = io.github.resilience4j.timelimiter.TimeLimiterConfig.custom()
                 .timeoutDuration(Duration.ofMillis(timeoutDuration))
@@ -75,7 +75,7 @@ public class CircuitBreakerConfig {
         return TimeLimiter.of(timeLimiterConfig);
     }
 
-    @Bean
+    // @Bean
     public CircuitBreaker iamServiceCircuitBreaker(CircuitBreakerRegistry registry) {
         CircuitBreaker circuitBreaker = registry.circuitBreaker("iam-service");
 
@@ -96,7 +96,7 @@ public class CircuitBreakerConfig {
         return circuitBreaker;
     }
 
-    @Bean
+    // @Bean
     public CircuitBreaker userServiceCircuitBreaker(CircuitBreakerRegistry registry) {
         CircuitBreaker circuitBreaker = registry.circuitBreaker("user-service");
 
@@ -109,7 +109,7 @@ public class CircuitBreakerConfig {
         return circuitBreaker;
     }
 
-    @Bean
+    // @Bean
     public CircuitBreaker authServiceCircuitBreaker(CircuitBreakerRegistry registry) {
         CircuitBreaker circuitBreaker = registry.circuitBreaker("auth-service");
 
@@ -122,7 +122,7 @@ public class CircuitBreakerConfig {
         return circuitBreaker;
     }
 
-    @Bean
+    // @Bean
     public CircuitBreaker emailServiceCircuitBreaker(CircuitBreakerRegistry registry) {
         CircuitBreaker circuitBreaker = registry.circuitBreaker("email-service");
 
@@ -135,7 +135,7 @@ public class CircuitBreakerConfig {
         return circuitBreaker;
     }
 
-    @Bean
+    // @Bean
     public CircuitBreaker notificationServiceCircuitBreaker(CircuitBreakerRegistry registry) {
         CircuitBreaker circuitBreaker = registry.circuitBreaker("notification-service");
 

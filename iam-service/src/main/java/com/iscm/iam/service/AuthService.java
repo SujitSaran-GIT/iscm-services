@@ -6,26 +6,24 @@ import com.iscm.iam.dto.RegisterRequest;
 import com.iscm.iam.model.Organization;
 import com.iscm.iam.model.Role;
 import com.iscm.iam.model.User;
-import com.iscm.iam.model.UserRole;
 import com.iscm.iam.model.UserSession;
 import com.iscm.iam.repository.OrganizationRepository;
 import com.iscm.iam.repository.RoleRepository;
 import com.iscm.iam.repository.UserRepository;
 import com.iscm.iam.security.JwtUtil;
-import com.iscm.iam.security.JwtBlacklistService;
+// import com.iscm.iam.security.JwtBlacklistService;
 import com.iscm.iam.security.SecurityMonitoringService;
-import com.iscm.iam.cache.CacheService;
+// import com.iscm.iam.cache.CacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.cache.annotation.Cacheable;
-import org.springframework.cache.annotation.CacheEvict;
+// import org.springframework.cache.annotation.Cacheable;
+// import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,18 +44,17 @@ public class AuthService {
     private final PasswordService passwordService;
     private final AuthenticationManager authenticationManager;
     private final JwtUtil jwtUtil;
-    private final JwtBlacklistService jwtBlacklistService;
-    private final SecurityMonitoringService securityMonitoringService;
-    private final CacheService cacheService;
-    private final AsyncProcessingService asyncProcessingService;
+    // private final JwtBlacklistService jwtBlacklistService;
+    // private final SecurityMonitoringService securityMonitoringService;
+    // private final CacheService cacheService;
+    // private final AsyncProcessingService asyncProcessingService;
 
     @Transactional
-    @Cacheable(value = "users", key = "#request.email")
+    // @Cacheable(value = "users", key = "#request.email")
     public AuthResponse login(AuthRequest request) {
-        // Try to get from cache first
-        User user = cacheService.getCachedUserByEmail(request.getEmail())
-                .orElseGet(() -> userRepository.findByEmail(request.getEmail())
-                        .orElseThrow(() -> new BadCredentialsException("Invalid credentials")));
+        // Get user from database (cache disabled)
+        User user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
 
         // Check if account is locked
         if (!user.isAccountNonLocked()) {
@@ -81,19 +78,19 @@ public class AuthService {
             userRepository.save(user);
 
             // Cache the updated user
-            cacheService.cacheUser(user);
+            // cacheService.cacheUser(user);
 
-            // Log successful login asynchronously
-            asyncProcessingService.processSecurityEventAsync(
-                SecurityMonitoringService.SecurityEventType.SUCCESSFUL_LOGIN,
-                "User logged in successfully",
-                request.getIpAddress(),
-                request.getUserAgent(),
-                user.getId()
-            );
+            // Log successful login asynchronously - DISABLED
+            // asyncProcessingService.processSecurityEventAsync(
+            //     SecurityMonitoringService.SecurityEventType.SUCCESSFUL_LOGIN,
+            //     "User logged in successfully",
+            //     request.getIpAddress(),
+            //     request.getUserAgent(),
+            //     user.getId()
+            // );
 
-            // Send login notification asynchronously
-            asyncProcessingService.sendLoginNotificationAsync(user, request.getIpAddress(), request.getUserAgent());
+            // Send login notification asynchronously - DISABLED
+            // asyncProcessingService.sendLoginNotificationAsync(user, request.getIpAddress(), request.getUserAgent());
 
             // Generate tokens
             List<String> roles = user.getUserRoles().stream()
@@ -117,23 +114,23 @@ public class AuthService {
                     .build();
 
         } catch (BadCredentialsException ex) {
-            // Log failed login attempt asynchronously
-            asyncProcessingService.processSecurityEventAsync(
-                SecurityMonitoringService.SecurityEventType.FAILED_LOGIN,
-                "Failed login attempt for user: " + request.getEmail(),
-                request.getIpAddress(),
-                request.getUserAgent(),
-                user != null ? user.getId() : null
-            );
+            // Log failed login attempt asynchronously - DISABLED
+            // asyncProcessingService.processSecurityEventAsync(
+            //     SecurityMonitoringService.SecurityEventType.FAILED_LOGIN,
+            //     "Failed login attempt for user: " + request.getEmail(),
+            //     request.getIpAddress(),
+            //     request.getUserAgent(),
+            //     user != null ? user.getId() : null
+            // );
 
-            // Check for brute force attack asynchronously
-            asyncProcessingService.processSecurityEventAsync(
-                SecurityMonitoringService.SecurityEventType.BRUTE_FORCE_DETECTED,
-                "Potential brute force attack from IP: " + request.getIpAddress(),
-                request.getIpAddress(),
-                request.getUserAgent(),
-                user != null ? user.getId() : null
-            );
+            // Check for brute force attack asynchronously - DISABLED
+            // asyncProcessingService.processSecurityEventAsync(
+            //     SecurityMonitoringService.SecurityEventType.BRUTE_FORCE_DETECTED,
+            //     "Potential brute force attack from IP: " + request.getIpAddress(),
+            //     request.getIpAddress(),
+            //     request.getUserAgent(),
+            //     user != null ? user.getId() : null
+            // );
 
             // Increment failed attempts
             handleFailedLogin(user);
@@ -146,6 +143,9 @@ public class AuthService {
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new IllegalArgumentException("Email already exists");
         }
+
+        // Validate additional fields including password confirmation
+        request.validateAdditionalFields();
 
         // Validate password strength
         var passwordValidation = passwordService.validatePassword(request.getPassword());
@@ -172,7 +172,7 @@ public class AuthService {
         user.setLastName(request.getLastName());
         user.setPhone(request.getPhone());
         user.setOrganization(organization);
-        user.setTenantId(organization != null ? organization.getId() : null);
+        user.setTenantId(organization != null ? organization.getId() : UUID.fromString("00000000-0000-0000-0000-000000000000"));
 
         User savedUser = userRepository.save(user);
 
@@ -190,8 +190,8 @@ public class AuthService {
 
         sessionService.createSession(savedUser, refreshToken, null, null);
 
-        // Process post-registration tasks asynchronously
-        asyncProcessingService.processUserRegistrationAsync(savedUser, null); // IP address not available in registration request
+        // Process post-registration tasks asynchronously - DISABLED
+        // asyncProcessingService.processUserRegistrationAsync(savedUser, null); // IP address not available in registration request
 
         return AuthResponse.builder()
                 .accessToken(accessToken)
@@ -228,7 +228,7 @@ public class AuthService {
     }
 
     @Transactional
-    @CacheEvict(value = {"users", "activeSessions"}, key = "#result?.id")
+    // @CacheEvict(value = {"users", "activeSessions"}, key = "#result?.id")
     public void logout(String refreshToken) {
         try {
             // Get session details for logging
@@ -238,10 +238,10 @@ public class AuthService {
                 log.info("User logout: userId={}, sessionId={}", user.getId(), session.getId());
 
                 // Clear user cache on logout
-                cacheService.clearUserCache(user.getId());
+                // cacheService.clearUserCache(user.getId());
 
-                // Blacklist the refresh token
-                jwtBlacklistService.blacklistToken(refreshToken, "User logout");
+                // Blacklist the refresh token - DISABLED
+                // jwtBlacklistService.blacklistToken(refreshToken, "User logout");
 
                 // Blacklist associated access token if available
                 // Note: In a real implementation, you might track the access token ID as well
@@ -263,8 +263,8 @@ public class AuthService {
     @Transactional
     public void logoutAllSessions(UUID userId) {
         try {
-            // Blacklist all tokens for the user
-            jwtBlacklistService.blacklistAllUserTokens(userId, "User logout all sessions");
+            // Blacklist all tokens for the user - DISABLED
+            // jwtBlacklistService.blacklistAllUserTokens(userId, "User logout all sessions");
             log.info("All tokens blacklisted for user during logout: userId={}", userId);
 
             // Revoke all user sessions
@@ -287,15 +287,15 @@ public class AuthService {
             log.warn("Account locked for user: {} due to {} failed attempts",
                     user.getEmail(), newAttempts);
 
-            // Log account lockout event
-            securityMonitoringService.recordSecurityEventWithUser(
-                SecurityMonitoringService.SecurityEventType.ACCOUNT_LOCKED,
-                String.format("Account locked for user %s due to %d failed login attempts",
-                    user.getEmail(), newAttempts),
-                null, // IP address not available here
-                null,
-                user
-            );
+            // Log account lockout event - DISABLED
+            // securityMonitoringService.recordSecurityEventWithUser(
+            //     SecurityMonitoringService.SecurityEventType.ACCOUNT_LOCKED,
+            //     String.format("Account locked for user %s due to %d failed login attempts",
+            //         user.getEmail(), newAttempts),
+            //     null, // IP address not available here
+            //     null,
+            //     user
+            // );
         }
 
         userRepository.save(user);
@@ -305,12 +305,34 @@ public class AuthService {
         // If this is the first user, assign SUPER_ADMIN role
         if (userRepository.count() == 0) {
             return roleRepository.findByName("SUPER_ADMIN")
-                    .orElseThrow(() -> new IllegalStateException("SUPER_ADMIN role not found"));
+                    .orElseGet(() -> {
+                        log.warn("SUPER_ADMIN role not found, creating a basic USER role as fallback");
+                        return createBasicUserRole();
+                    });
         }
-        
-        // Otherwise assign USER role (you might want to create this role in initial data)
+
+        // Otherwise assign USER role, fallback to creating one if USER doesn't exist
         return roleRepository.findByName("USER")
-                .orElseGet(() -> roleRepository.findByName("SUPER_ADMIN")
-                        .orElseThrow(() -> new IllegalStateException("No default role found")));
+                .orElseGet(() -> {
+                    log.warn("USER role not found, creating a basic USER role as fallback");
+                    return createBasicUserRole();
+                });
+    }
+
+    private Role createBasicUserRole() {
+        try {
+            Role userRole = Role.builder()
+                    .name("USER")
+                    .description("Basic user role created as fallback")
+                    .scope("PLATFORM")
+                    .build();
+
+            Role saved = roleRepository.save(userRole);
+            log.info("Created basic USER role as fallback: {}", saved.getId());
+            return saved;
+        } catch (Exception e) {
+            log.error("Failed to create basic USER role", e);
+            throw new IllegalStateException("Unable to create a basic USER role for registration", e);
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.iscm.iam.model;
 
 
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -52,21 +53,25 @@ public class User extends BaseEntity{
     private String phone;
 
     @Column(name = "is_active")
+    @Builder.Default
     private Boolean isActive = true;
 
     @Column(name = "auth_provider")
+    @Builder.Default
     private String authProvider = "LOCAL";
 
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
 
     @Column(name = "failed_login_attempts")
+    @Builder.Default
     private Integer failedLoginAttempts = 0;
 
     @Column(name = "account_locked_until")
     private LocalDateTime accountLockedUntil;
 
     @Column(name = "mfa_enabled")
+    @Builder.Default
     private Boolean mfaEnabled = false;
 
     @Column(name = "mfa_secret")
@@ -82,6 +87,8 @@ public class User extends BaseEntity{
     private String mfaBackupCodes;
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @JsonManagedReference("user-userRoles")
+    @Builder.Default
     private List<UserRole> userRoles = new ArrayList<>();
 
     public String getFullName() {

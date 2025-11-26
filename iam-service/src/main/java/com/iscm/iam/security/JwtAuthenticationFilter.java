@@ -44,22 +44,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     filterChain.doFilter(request, response);
                     return;
                 }
-                
-                if (jwtUtil.validateToken(jwt)) {
-                    String userId = jwtUtil.getUserIdFromToken(jwt);
-                    
-                    UserDetails userDetails = userService.loadUserByUserId(userId);
-                    
+
+                // OPTIMIZED: Single-pass JWT parsing to extract all claims
+                JwtUtil.JwtClaims claims = jwtUtil.extractAllClaims(jwt);
+
+                if (claims != null && claims.isValid()) {
                     // Set user ID in request for rate limiting
-                    request.setAttribute("userId", userId);
-                    
-                    UsernamePasswordAuthenticationToken authentication = 
+                    request.setAttribute("userId", claims.getUserId());
+
+                    UserDetails userDetails = userService.loadUserByUserId(claims.getUserId());
+
+                    UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                     authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                    
+
                     SecurityContextHolder.getContext().setAuthentication(authentication);
-                    
-                    log.debug("Authenticated user: {} from IP: {}", 
+
+                    log.debug("Authenticated user: {} from IP: {}",
                             userDetails.getUsername(), getClientIpAddress(request));
                 } else {
                     log.warn("Invalid JWT token from IP: {}", getClientIpAddress(request));

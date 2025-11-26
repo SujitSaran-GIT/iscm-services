@@ -19,6 +19,10 @@ public interface RoleRepository extends JpaRepository<Role, UUID> {
     
     @Query("SELECT r FROM Role r LEFT JOIN FETCH r.permissions WHERE r.name = :name")
     Optional<Role> findByNameWithPermissions(@Param("name") String name);
-    
+
+    // Method to get permissions for multiple roles (avoid MultipleBagFetchException)
+    @Query("SELECT DISTINCT r FROM Role r LEFT JOIN FETCH r.permissions WHERE r.id IN :roleIds")
+    List<Role> findRolesWithPermissions(@Param("roleIds") List<UUID> roleIds);
+
     Boolean existsByName(String name);
 }

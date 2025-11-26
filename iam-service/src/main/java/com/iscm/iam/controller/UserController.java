@@ -40,7 +40,7 @@ public class UserController {
     }
 
     @GetMapping("/{userId}")
-    @PreAuthorize("hasAuthority('USER_READ')")
+    @PreAuthorize("hasAuthority('USER_READ') or @userService.isCurrentUser(authentication, #userId)")
     @Operation(summary = "Get user by ID")
     public ResponseEntity<AuthResponse.UserDto> getUserById(@PathVariable UUID userId) {
         User user = userService.findById(userId);
@@ -59,7 +59,7 @@ public class UserController {
     }
 
     @PutMapping("/{userId}")
-    @PreAuthorize("hasAuthority('USER_WRITE')")
+    @PreAuthorize("hasAuthority('USER_WRITE') or @userService.isCurrentUser(authentication, #userId)")
     @Operation(summary = "Update user")
     public ResponseEntity<AuthResponse.UserDto> updateUser(@PathVariable UUID userId, @Valid @RequestBody UserUpdateRequest updateRequest) {
         User updatedUser = userService.updateUser(userId, updateRequest);

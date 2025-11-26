@@ -24,6 +24,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT u FROM User u LEFT JOIN FETCH u.userRoles ur LEFT JOIN FETCH ur.role WHERE u.email = :email")
     Optional<User> findByEmailWithRoles(@Param("email") String email);
 
+    // Fix MultipleBagFetchException by using separate queries or fixing the JOIN structure
+    @Query("SELECT u FROM User u LEFT JOIN FETCH u.userRoles ur LEFT JOIN FETCH ur.role WHERE u.email = :email AND u.isActive = true")
+    Optional<User> findByEmailWithAllDetails(@Param("email") String email);
+
+    @Query("SELECT u FROM User u LEFT JOIN FETCH u.userRoles ur LEFT JOIN FETCH ur.role WHERE u.id = :id AND u.isActive = true")
+    Optional<User> findByIdWithAllDetails(@Param("id") UUID id);
+
+    
     @Query("SELECT u FROM User u LEFT JOIN FETCH u.userRoles ur LEFT JOIN FETCH ur.role WHERE u.id = :id")
     Optional<User> findByIdWithRoles(@Param("id") UUID id);
     
