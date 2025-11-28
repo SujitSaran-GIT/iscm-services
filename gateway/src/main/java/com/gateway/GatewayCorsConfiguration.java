@@ -1,11 +1,11 @@
 package com.gateway;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.CorsWebFilter;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.beans.factory.annotation.Value;
 
 import java.util.Arrays;
 import java.util.List;
@@ -20,16 +20,14 @@ public class GatewayCorsConfiguration {
     public CorsWebFilter corsWebFilter() {
         CorsConfiguration corsConfig = new CorsConfiguration();
 
-        // Optimized: Use configurable origins and reduce regex operations
+        // Allowed origins from configuration
         List<String> origins = Arrays.asList(allowedOrigins);
         corsConfig.setAllowedOrigins(origins);
 
-        // Optimized: Pre-computed method list
         corsConfig.setAllowedMethods(Arrays.asList(
             "GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"
         ));
 
-        // Optimized: Essential headers only for better performance
         corsConfig.setAllowedHeaders(Arrays.asList(
             "Authorization",
             "Content-Type",
@@ -43,18 +41,23 @@ public class GatewayCorsConfiguration {
         ));
 
         corsConfig.setAllowCredentials(true);
-        corsConfig.setMaxAge(7200L); // Increased from 3600L to reduce pre-flight requests
-        corsConfig.setExposedHeaders(Arrays.asList("Authorization", "Content-Type", "X-Rate-Limit-Remaining"));
+        corsConfig.setMaxAge(7200L); // 2 hours
+        corsConfig.setExposedHeaders(Arrays.asList(
+            "Authorization",
+            "Content-Type",
+            "X-Rate-Limit-Remaining"
+        ));
 
-        // Optimized: Apply CORS only to API paths, not to health endpoints
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/iam/**", corsConfig);
-        source.registerCorsConfiguration("/api/**", corsConfig);
 
-        // For health checks, minimal CORS
+        // Apply CORS to gateway entry paths
+        source.registerCorsConfiguration("/iam/**", corsConfig);
+        source.registerCorsConfiguration("/vendor/**", corsConfig);
+
+        // Health/actuator – more relaxed
         CorsConfiguration healthCorsConfig = new CorsConfiguration();
-        healthCorsConfig.setAllowedOrigins(Arrays.asList("*"));
-        healthCorsConfig.setAllowedMethods(Arrays.asList("GET", "OPTIONS"));
+        healthCorsConfig.setAllowedOrigins(List.of("*"));
+        healthCorsConfig.setAllowedMethods(List.of("GET", "OPTIONS"));
         healthCorsConfig.setMaxAge(3600L);
         source.registerCorsConfiguration("/actuator/**", healthCorsConfig);
 

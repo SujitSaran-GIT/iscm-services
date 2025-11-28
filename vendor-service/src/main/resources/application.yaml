@@ -72,6 +72,8 @@ server:
   error:
     include-message: always
     include-binding-errors: always
+  servlet:
+    context-path: /vendor
 
 # Management & Actuator
 management:
