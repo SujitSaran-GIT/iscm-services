@@ -1,0 +1,15 @@
+package com.iscm.entity.enums;
+
+public enum DocumentType {
+    TAX_CERTIFICATE,
+    BUSINESS_LICENSE,
+    BANK_STATEMENT,
+    PAN_CARD,
+    GST_CERTIFICATE,
+    INCORPORATION_CERTIFICATE,
+    TRADE_LICENSE,
+    ISO_CERTIFICATE,
+    INSURANCE_CERTIFICATE,
+    CONTRACT,
+    OTHER
+}
