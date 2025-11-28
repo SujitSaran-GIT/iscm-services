@@ -1,0 +1,398 @@
+# # ISCM IAM Service - Development Configuration
+# # Simplified configuration for development environment
+
+# # ========== Server Configuration - OPTIMIZED ==========
+# server.port=8081
+# server.servlet.context-path=/iam
+# spring.application.name=iam-service
+
+# # Tomcat thread pool optimization
+# server.tomcat.threads.min-spare=20
+# server.tomcat.threads.max=200
+# server.tomcat.accept-count=100
+# server.tomcat.connection-timeout=5000
+# server.tomcat.max-connections=10000
+
+# # HTTP keep-alive settings
+# server.tomcat.keep-alive-timeout=30
+# server.tomcat.max-keep-alive-requests=100
+
+# # ========== Database Configuration ==========
+# spring.datasource.url=jdbc:postgresql://localhost:5432/iscm_iam
+# spring.datasource.username=postgres
+# spring.datasource.password=Saran@2002
+# spring.datasource.driver-class-name=org.postgresql.Driver
+
+# # HikariCP Connection Pool - OPTIMIZED
+# spring.datasource.hikari.maximum-pool-size=50
+# spring.datasource.hikari.minimum-idle=10
+# spring.datasource.hikari.connection-timeout=5000
+# spring.datasource.hikari.idle-timeout=600000
+# spring.datasource.hikari.max-lifetime=1800000
+# spring.datasource.hikari.leak-detection-threshold=15000
+# spring.datasource.hikari.pool-name=ISCM-IAM-Pool
+# spring.datasource.hikari.connection-test-query=SELECT 1
+
+# # ========== JPA/Hibernate Configuration ==========
+# spring.jpa.hibernate.ddl-auto=none
+# spring.jpa.show-sql=false
+# spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+# spring.jpa.properties.hibernate.format_sql=true
+
+# # ========== Liquibase ==========
+# spring.liquibase.change-log=classpath:db/changelog/db.changelog.master.yaml
+# spring.liquibase.enabled=true
+
+# # ========== Redis Configuration - OPTIMIZED - DISABLED ==========
+# # spring.data.redis.host=localhost
+# # spring.data.redis.port=6379
+# # spring.data.redis.password=
+# # spring.data.redis.database=0
+# # spring.data.redis.timeout=500ms
+
+# # Redis Connection Pool - OPTIMIZED - DISABLED
+# # spring.data.redis.lettuce.pool.max-active=50
+# # spring.data.redis.lettuce.pool.max-idle=20
+# # spring.data.redis.lettuce.pool.min-idle=5
+# # spring.data.redis.lettuce.pool.max-wait=1000ms
+# # spring.data.redis.lettuce.shutdown-timeout=200ms
+
+# # ========== Cache Configuration - DISABLED ==========
+# # spring.cache.type=redis
+# # spring.cache.redis.time-to-live=1800000
+# # spring.cache.redis.cache-null-values=false
+# # spring.cache.redis.use-key-prefix=true
+# # spring.cache.redis.key-prefix=iscm.iam.
+
+# # ========== JWT Configuration ==========
+# app.jwt.secret=mySecretKey12345678901234567890123456789012345678901234567890123456789012345678901234567890
+# app.jwt.refresh-secret=myRefreshSecretKey12345678901234567890123456789012345678901234567890123456789012345678901234567890
+# app.jwt.expiration.access=900
+# app.jwt.expiration.refresh=604800
+
+# # JWT Blacklist - DISABLED
+# app.jwt.blacklist.enabled=false
+# # app.jwt.blacklist.cleanup-interval=3600
+
+# # ========== Security Configuration ==========
+# app.security.max-login-attempts=5
+# app.security.account-lock-duration-minutes=30
+
+# # Rate Limiting - DISABLED
+# app.security.rate-limiting.enabled=false
+# # app.security.rate-limiting.max-attempts=5
+# # app.security.rate-limiting.window-seconds=60
+
+# # ========== MFA Configuration ==========
+# app.mfa.totp.window-size=3
+# app.mfa.backup-codes.count=10
+
+# # ========== Email Configuration - DISABLED ==========
+# # spring.mail.host=localhost
+# # spring.mail.port=1025
+# # spring.mail.properties.mail.smtp.auth=false
+# # spring.mail.properties.mail.smtp.starttls.enable=false
+# app.email.enabled=false
+
+# # ========== OAuth Configuration - DISABLED ==========
+# app.oauth.enabled=false
+# # app.oauth.google.client-id=placeholder-client-id
+# # app.oauth.google.client-secret=placeholder-client-secret
+# # app.oauth.google.redirect-uri=http://localhost:8081/iam/api/v1/oauth/google/callback
+
+# # ========== Logging Configuration ==========
+# logging.level.com.iscm=DEBUG
+# logging.level.org.springframework.security=INFO
+# logging.level.org.hibernate.SQL=WARN
+# logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n
+
+# # ========== Actuator Configuration - ENHANCED MONITORING ==========
+# management.endpoints.web.exposure.include=health,info,metrics,prometheus
+# management.endpoints.web.base-path=/actuator
+# management.endpoint.health.show-details=always
+# management.health.mail.enabled=false
+# management.metrics.enabled=true
+
+# # Enhanced metrics collection
+# management.metrics.tags.application=iscm-iam
+# management.metrics.export.prometheus.enabled=true
+# management.metrics.distribution.percentiles-histogram.http.server.requests=true
+# management.metrics.distribution.sla.http.server.requests=10ms,50ms,100ms,200ms,500ms,1s,2s,5s
+
+# # HikariCP metrics
+# management.metrics.data.instrument.hikari=true
+
+# # ========== OpenAPI/Swagger Configuration ==========
+# springdoc.api-docs.path=/v3/api-docs
+# springdoc.swagger-ui.path=/swagger-ui.html
+# springdoc.swagger-ui.operations-sorter=method
+
+# # ========== Cache Configuration - DISABLED ==========
+# app.cache.enabled=false
+
+# # ========== Session Management ==========
+# app.session.max-concurrent-sessions=5
+# app.session.timeout=604800
+
+# # ========== Async Configuration - OPTIMIZED - DISABLED ==========
+# # app.async.core-pool-size=20
+# # app.async.max-pool-size=100
+# # app.async.queue-capacity=1000
+# # app.async.thread-name-prefix=iscm-async-
+# # app.async.keep-alive-seconds=120
+# # app.async.await-termination-seconds=60
+
+# # ========== Fraud Detection Configuration - DISABLED ==========
+# # app.fraud.service.url=http://localhost:8081
+# app.fraud.enabled=false
+# # app.fraud.max-suspicious-activities=10
+# # app.fraud.detection-window-minutes=30
+
+# # ========== Device Management Configuration - DISABLED ==========
+# # app.device.max-trusted-devices=5
+# app.device.fingerprint.enabled=false
+# # app.device.trust.duration-days=30
+
+# # ========== Password Policy Configuration ==========
+# app.password.min-length=8
+# app.password.require-uppercase=true
+# app.password.require-lowercase=true
+# app.password.require-numbers=true
+# app.password.require-special-chars=true
+
+
+## ISCM IAM Service - Development Configuration
+## Simplified configuration for development environment
+
+## ========== Server Configuration - OPTIMIZED ==========
+server:
+  port: 8081
+  servlet:
+    context-path: /iam
+  tomcat:
+    # Tomcat thread pool optimization
+    threads:
+      min-spare: 20
+      max: 200
+    accept-count: 100
+    connection-timeout: 5000
+    max-connections: 10000
+    # HTTP keep-alive settings
+    keep-alive-timeout: 30
+    max-keep-alive-requests: 100
+
+spring:
+  application:
+    name: iam-service
+
+  ## ========== Database Configuration ==========
+  datasource:
+    url: jdbc:postgresql://localhost:5432/iscm_iam
+    username: postgres
+    password: Saran@2002
+    driver-class-name: org.postgresql.Driver
+    # HikariCP Connection Pool - OPTIMIZED
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+      connection-timeout: 5000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 15000
+      pool-name: ISCM-IAM-Pool
+      connection-test-query: SELECT 1
+
+  ## ========== JPA/Hibernate Configuration ==========
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  ## ========== Liquibase ==========
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog.master.yaml
+    enabled: true
+
+  ## ========== Redis Configuration - OPTIMIZED - DISABLED ==========
+  # data:
+  #   redis:
+  #     host: localhost
+  #     port: 6379
+  #     password:
+  #     database: 0
+  #     timeout: 500ms
+  #     # Redis Connection Pool - OPTIMIZED - DISABLED
+  #     lettuce:
+  #       pool:
+  #         max-active: 50
+  #         max-idle: 20
+  #         min-idle: 5
+  #         max-wait: 1000ms
+  #       shutdown-timeout: 200ms
+
+  ## ========== Cache Configuration - DISABLED ==========
+  # cache:
+  #   type: redis
+  #   redis:
+  #     time-to-live: 1800000
+  #     cache-null-values: false
+  #     use-key-prefix: true
+  #     key-prefix: iscm.iam.
+
+  ## ========== Email Configuration - DISABLED ==========
+  # mail:
+  #   host: localhost
+  #   port: 1025
+  #   properties:
+  #     mail:
+  #       smtp:
+  #         auth: false
+  #         starttls:
+  #           enable: false
+
+# ========== JWT Configuration ==========
+app:
+  jwt:
+    secret: mySecretKey12345678901234567890123456789012345678901234567890123456789012345678901234567890
+    refresh-secret: myRefreshSecretKey12345678901234567890123456789012345678901234567890123456789012345678901234567890
+    expiration:
+      access: 900
+      refresh: 604800
+    # JWT Blacklist - DISABLED
+    blacklist:
+      enabled: false
+      # cleanup-interval: 3600
+
+  ## ========== Security Configuration ==========
+  security:
+    max-login-attempts: 5
+    account-lock-duration-minutes: 30
+    # Rate Limiting - DISABLED
+    rate-limiting:
+      enabled: false
+      # max-attempts: 5
+      # window-seconds: 60
+
+  ## ========== MFA Configuration ==========
+  mfa:
+    totp:
+      window-size: 3
+    backup-codes:
+      count: 10
+
+  email:
+    enabled: false
+
+  ## ========== OAuth Configuration - DISABLED ==========
+  oauth:
+    enabled: false
+    # google:
+    #   client-id: placeholder-client-id
+    #   client-secret: placeholder-client-secret
+    #   redirect-uri: http://localhost:8081/iam/api/v1/oauth/google/callback
+
+  ## ========== Cache Configuration - DISABLED ==========
+  cache:
+    enabled: false
+
+  ## ========== Session Management ==========
+  session:
+    max-concurrent-sessions: 5
+    timeout: 604800
+
+  ## ========== Async Configuration - OPTIMIZED - DISABLED ==========
+  # async:
+  #   core-pool-size: 20
+  #   max-pool-size: 100
+  #   queue-capacity: 1000
+  #   thread-name-prefix: iscm-async-
+  #   keep-alive-seconds: 120
+  #   await-termination-seconds: 60
+
+  ## ========== Fraud Detection Configuration - DISABLED ==========
+  fraud:
+    # service:
+    #   url: http://localhost:8081
+    enabled: false
+    # max-suspicious-activities: 10
+    # detection-window-minutes: 30
+
+  ## ========== Device Management Configuration - DISABLED ==========
+  device:
+    # max-trusted-devices: 5
+    fingerprint:
+      enabled: false
+    # trust:
+    #   duration-days: 30
+
+  ## ========== Password Policy Configuration ==========
+  password:
+    min-length: 8
+    require-uppercase: true
+    require-lowercase: true
+    require-numbers: true
+    require-special-chars: true
+
+# ========== Logging Configuration ==========
+logging:
+  level:
+    com.iscm: DEBUG
+    org.springframework.security: INFO
+    org.hibernate.SQL: WARN
+  pattern:
+    console: '%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n'
+
+# ========== Actuator Configuration - ENHANCED MONITORING ==========
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+    endpoint:
+      health:
+        show-details: always
+  health:
+    mail:
+      enabled: false
+  metrics:
+    enabled: true
+    # Enhanced metrics collection
+    tags:
+      application: iscm-iam
+    export:
+      prometheus:
+        enabled: true
+    distribution:
+      percentiles-histogram:
+        http:
+          server:
+            requests: true
+      sla:
+        http:
+          server:
+            requests: 10ms,50ms,100ms,200ms,500ms,1s,2s,5s
+    # HikariCP metrics
+    data:
+      instrument:
+        hikari: true
+
+# ========== OpenAPI/Swagger Configuration ==========
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+
+# ========== Eureka Discovery Client ============
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8763/eureka/
+  instance:
+    prefer-ip-address: true

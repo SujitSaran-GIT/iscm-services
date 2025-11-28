@@ -23,6 +23,13 @@ spring:
           max-idle-time: 60s
           time-to-live: 60s
 
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8763/eureka/
+  instance:
+    prefer-ip-address: true
+
 # Service URLs (you can override via env: IAM_SERVICE_URL / VENDOR_SERVICE_URL)
 iam:
   service:
